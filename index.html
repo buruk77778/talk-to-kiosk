@@ -399,10 +399,10 @@ function startCheckout(){
 function tileClick(name,price,cat){
   if(cat==="버거"){
     popup({title:"세트로 드시겠어요?",body:`${name}\n세트: 사이드 + 음료 포함`,
-      buttons:[["단품으로","",()=>{closePopup();addItem(name,price);toast("장바구니에 담았습니다");render();}],
+      buttons:[["단품으로","",()=>{closePopup();addItem(name,price);toast(`${name} 담았습니다`);render();}],
                ["세트로 (+3,000원)","primary",()=>{K.setBurger=[name,price];K.setSide=0;K.setDrink=0;go("SETOPT");}]],
       tinyClose:"취소 (다른 메뉴 고르기)"});
-  } else { addItem(name,price); toast("장바구니에 담았습니다"); render(); }
+  } else { addItem(name,price); toast(`${name} 담았습니다`); render(); }
 }
 
 function render(){
@@ -414,7 +414,6 @@ function render(){
     const t=mkBtn(b("주문하려면\n화면을 터치하세요","touch",()=>go("DINE")));
     t.style.whiteSpace="pre-line"; screenEl.appendChild(t);
     const row=el("div","langrow");
-    ["ENG","中文","日本語"].forEach(l=>row.appendChild(mkBtn(b(l,"tiny",()=>popup({title:"안내",body:`${l} 서비스는 준비 중입니다.`,buttons:[["확인","",closePopup]]})))));
     row.appendChild(el("div","sp"));
     row.appendChild(mkBtn(b("직원 호출","tiny",()=>popup({title:"직원 호출",body:"직원을 호출했습니다.\n잠시만 기다려주세요.",buttons:[["확인","",closePopup]]}))));
     screenEl.appendChild(row);
@@ -475,7 +474,7 @@ function render(){
     bar.appendChild(el("span","sum",`세트 합계  ${won(total)}`));
     bar.appendChild(mkBtn(b("담기","primary",()=>{
       addItem(`${bn} 세트`,total,`${SET_SIDES[K.setSide][0]} / ${SET_DRINKS[K.setDrink][0]}`);
-      go("MENU"); toast("장바구니에 담았습니다");
+      go("MENU"); toast(`${bn} 세트 담았습니다`);
     })));
     screenEl.appendChild(bar);
   }
@@ -739,15 +738,25 @@ async function aiJSON(system, user, ms=9000){
       method:"POST", headers:{"Content-Type":"application/json"}, signal:ctrl.signal,
       body:JSON.stringify({system_instruction:{parts:[{text:system}]},
         contents:[{role:"user",parts:[{text:user}]}],
-        generationConfig:{temperature:0.2, maxOutputTokens:300, responseMimeType:"application/json"}})});
-    if(!r.ok) throw new Error("HTTP "+r.status);
+        // 2.5 모델은 기본으로 '생각'에 토큰을 써서, 짧은 한도에선 답이 비어 버린다 → 생각 끔 + 한도 넉넉히
+        generationConfig:Object.assign({temperature:0.2, maxOutputTokens:1024, responseMimeType:"application/json"},
+          /^gemini-2\.5/.test(model)? {thinkingConfig:{thinkingBudget:0}} : {})})});
+    if(!r.ok){
+      if(r.status===404||r.status===400){               // 이 모델을 못 쓰면 다음 후보로
+        const i=AI_PREF.indexOf(model); AI.model=AI_PREF[(i+1)%AI_PREF.length]; AI.name="AI 판단 · "+AI.model;
+      }
+      throw new Error("HTTP "+r.status);
+    }
     const j=await r.json();
     const txt=((((j.candidates||[])[0]||{}).content||{}).parts||[]).map(p=>p.text||"").join("");
     const m=txt.match(/\{[\s\S]*\}/); if(!m) throw new Error("no json");
     AI.fails=0; return JSON.parse(m[0]);
   }catch(e){
-    AI.fails++; log("AI","판단 실패 — 규칙으로 대신합니다 ("+(e.message||e)+")");
-    if(AI.fails>=3){ AI.ready=false; AI.name="규칙"; guide(); }
+    AI.fails++; log("AI","판단 실패 — 이번엔 규칙으로 대신합니다 ("+(e.message||e)+")");
+    if(AI.fails>=3 && AI.ready){                        // 잠깐 쉬었다가 다시 AI 로 (영구히 끄지 않는다)
+      AI.ready=false; AI.name="규칙"; guide();
+      setTimeout(()=>{ AI.fails=0; AI.ready=true; AI.name="AI 판단"+(AI.model?" · "+AI.model:""); guide(); }, 30000);
+    }
     return null;
   }finally{ clearTimeout(tm); }
 }
@@ -859,6 +868,7 @@ const RULES=[
   [/적립안|적립하지|안할|넘어/,"적립안함","포인트는 안 쌓고 넘어갈게요."],
   [/적립|포인트/,"^적립하기","포인트 쌓기로 갈게요."],
   [/계산|결제|끝|다됐/,"결제하기","계산하러 갈게요."],
+  [/^확인$/,"^확인$","확인 누를게요."],
   [/카드/,"신용","카드로 결제할게요."],
   [/큐알|qr|간편|폰으로/,"간편결제","간편결제로 할게요."],
   [/상품권|기프티콘|쿠폰/,"모바일상품권","모바일 상품권으로 할게요."],
@@ -932,9 +942,21 @@ function sig(){ return K.screen+"|"+(K.popup?K.popup.title:"")+"|"+cartCount()+"
 /* 실행 루프 */
 function tick(){
   if(!A.active||A.busy) return;
+  // 손님이 직접 메뉴를 담으면 무엇을 담았는지 알려드린다
+  { const snap={}; K.cart.forEach(i=>snap[i.name]=i.qty);
+    if(A.cartSnap && !A.steps.length){
+      const hit=Object.keys(snap).find(k=>(snap[k]||0)>(A.cartSnap[k]||0));
+      if(hit) A.justAdded=hit;
+    }
+    A.cartSnap=snap; }
   const now=sig();
   if(now!==A.sig){                      // 손님이 눌러서 화면이 바뀌었다
-    A.sig=now; lastDesc="";
+    // 번호를 한 자리 누를 때마다 "번호 눌러주세요"를 다시 읽지 않도록 — 화면·팝업이 바뀔 때만 안내를 새로 한다
+    const base=K.screen+"|"+(K.popup?K.popup.title:"")+"|"+K.payStep;
+    if(base!==A.sigBase){ A.sigBase=base; lastDesc=""; }
+    if(K.screen!=="MENU"){ A.menuSaid=false; A.setAskedAt=null; A.setShortAt=null; }
+    A.sig=now;
+
     if(A.waiting){
       if(A.waiting.consume){ A.steps.shift(); A.doneSteps.push(A.waiting.step); }
       A.waiting=null; renderPlan();
@@ -951,6 +973,19 @@ function tick(){
     if(!document.body.contains(A.waiting.node)||A.waiting.node.offsetParent===null){
       A.waiting=null; clearPoint();
     } else return;
+  }
+  // 번호 11자리를 다 누르면 읽어드리고 맞는지 여쭌다
+  if(K.screen==="PAY"&&K.payStep===1&&!K.popup&&K.phone.length===11&&A.phoneSaid!==K.phone
+     &&!A.steps.some(x=>/^[0-9]$/.test(x))){
+    A.phoneSaid=K.phone;
+    const p=K.phone, sp=x=>x.split("").join(" ");
+    const ok=readScreen().find(e=>btnName(e.el)==="확인");
+    if(ok&&!A.autoClick) pointAt(ok.el);
+    speak(`다 누르셨네요. ${sp(p.slice(0,3))}, ${sp(p.slice(3,7))}, ${sp(p.slice(7))}. 이 번호가 맞으면 `
+      +(A.autoClick? "'확인'이라고 말씀해주세요." : "'확인'을 눌러주세요.")
+      +" 틀렸으면 '지우기'로 고치시면 돼요.");
+    A.busy=true; setTimeout(()=>{ A.busy=false; },4500);
+    return;
   }
   if(!A.steps.length){ describe(); return; }
   const step=A.steps[0];
@@ -989,7 +1024,9 @@ function tick(){
     setTimeout(()=>{ A.busy=false; A.sig=sig(); clearPoint(); },fast?320:1000);
   }else{
     { const bn=btnName(r.node);
-      speak(/터치/.test(bn) ? "화면 아무 데나 한 번 눌러보세요." : "여기, '"+bn+"' 눌러보세요. 노란 테두리 친 곳이에요."); }
+      speak(/터치/.test(bn) ? "화면 아무 데나 한 번 눌러보세요."
+          : /^[0-9]$/.test(step) ? bn                       // 번호는 숫자만 짧게
+          : "여기, '"+bn+"' 눌러보세요. 노란 테두리 친 곳이에요."); }
   }
 }
 setInterval(tick,450);
@@ -1024,22 +1061,40 @@ function optionsSay(){
 
 /* 말 없이 화면만 바뀌었을 때 안내 */
 let lastDesc="";
+function popName(){ return ((K.popup&&K.popup.body)||"").split("\n")[0].trim() || "햄버거"; }
 function describe(){
   if(!A.active) return;
   let t="";
   if(K.popup&&/신메뉴/.test(K.popup.title)) t="광고가 떴네요.";
-  else if(K.popup&&/세트로/.test(K.popup.title)) t=A.autoClick
-      ? "세트로 하실래요, 햄버거만 하실래요? '세트로' 또는 '단품으로' 라고 말씀하세요."
-      : "세트로 하실래요, 햄버거만 하실래요?";
+  else if(K.popup&&/세트로/.test(K.popup.title)){
+    const n=cartCount();
+    if(A.setAskedAt!=null && A.setAskedAt!==n){          // 여러 개 고를 때 두 번째 것부터는 짧게 한 번만
+      if(A.setShortAt!==n){ A.setShortAt=n; lastDesc="이것도"; speak(`${popName()} 고르셨네요. 이것도 세트로 하실래요, 햄버거만 하실래요?`); }
+      return;
+    }
+    if(A.setAskedAt==null) A.setAskedAt=n;
+    t=`${popName()} 고르셨네요. 감자튀김이랑 음료가 같이 나오는 세트로 하실래요, 햄버거만 하실래요?`
+      +(A.autoClick? " '세트로' 또는 '단품으로' 라고 말씀하세요." : "");
+  }
   else if(K.popup&&/추가하시겠어요/.test(K.popup.title)) t="치즈스틱을 더 사라고 권하는 화면이에요. 필요 없으면 안 하셔도 돼요.";
   else if(K.screen==="START") t="주문 시작해 볼까요?";
   else if(K.screen==="DINE") t="여기서 드시고 가세요? 아니면 가져가세요?";
-  else if(K.screen==="MENU") t=cartCount()? `지금까지 ${cartCount()}개 담았어요. 더 드실 거 있으세요?` : "뭐 드시고 싶으세요? 햄버거, 치킨, 감자튀김, 음료 있어요.";
+  else if(K.screen==="MENU"){
+    const add=A.justAdded; A.justAdded=null;
+    if(A.menuSaid && !K.popup){          // 여러 개 고르는 동안 선택지를 매번 되풀이하지 않고, 담은 것만 짧게
+      if(add){ const line=`${add} 담았어요. 지금 모두 ${cartCount()}개예요. 더 드실 거 있으세요?`; lastDesc=line; speak(line); }
+      return;
+    }
+    A.menuSaid=true;
+    t = add ? `${add} 담았어요. 지금 모두 ${cartCount()}개예요. 더 드실 거 있으세요?`
+      : cartCount()? `지금까지 ${cartCount()}개 담았어요. 더 드실 거 있으세요?` : "뭐 드시고 싶으세요? 햄버거, 치킨, 감자튀김, 음료 있어요.";
+  }
   else if(K.screen==="SETOPT") t=A.autoClick
       ? "세트는 감자튀김하고 콜라로 나가요. 바꾸실 게 있으면 말씀하시고, 그대로 괜찮으면 그대로 담아줘, 하시면 돼요."
       : "세트는 감자튀김하고 콜라로 나가요. 바꾸실 것만 골라주시면 돼요.";
   else if(K.screen==="CART") t="지금까지 담으신 거예요.";
   else if(K.screen==="PAY"&&K.payStep===0) t="포인트 적립하실래요?";
+  else if(K.screen==="PAY"&&K.payStep===1&&K.phone.length>=11) t="";
   else if(K.screen==="PAY"&&K.payStep===1) t=A.autoClick
       ? "휴대폰 번호 불러주세요. 제가 눌러드릴게요."
       : "번호 눌러주세요. 불러주시면 어디 누를지 하나씩 짚어드릴게요.";
@@ -1115,12 +1170,16 @@ function heard(text){
     speak("네, 안내 멈출게요. 필요하시면 언제든 다시 불러주세요."); return;
   }
   lastDesc="";
+  // 번호를 다 누른 뒤 "맞아요/네" → 확인
+  if(K.screen==="PAY"&&K.payStep===1&&K.phone.length>=10&&/^(네|예|응|맞아|맞아요|맞습니다|맞어|그래|확인|확인해줘|확인해)$/.test(nn)){
+    applySteps(text,["확인"],true); return;
+  }
   // 번호 입력 화면: 불러주신 번호를 한 자리씩 눌러드린다
   if(K.screen==="PAY"&&K.payStep===1&&!/적립|취소|그만/.test(norm(text))){
     const d=digitsOf(text);
     if(d){
       A.steps=d.split(""); A.doneSteps=[]; A.retry=0; renderPlan();
-      speak(`${d.split("").join(" ")} 눌러드릴게요. 다 되면 확인, 하고 말씀해주세요.`);
+      speak(`${d.split("").join(" ")} 눌러드릴게요.`);
       return;
     }
   }
