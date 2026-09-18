@@ -258,8 +258,8 @@ body.dev .kctl{display:none}
       </div>
       <div class="guide" id="guide"><div class="who" id="guidewho">도우미</div><div class="say" id="guidesay"></div><div class="step" id="guidestep"></div></div>
       <div class="kctl" id="kctl">
-        <button id="kmic">🎤 말로 주문하기</button>
-        <button id="kmode">🤖 대신 눌러주세요</button>
+        <button id="kmic" aria-pressed="false">🎤 말로 주문하기</button>
+        <button id="kguide" class="on" aria-pressed="true">👆 내가 누를게요</button>
         <button id="kzoom" title="글씨 크기">🔍 글씨 크게</button>
       </div>
     </div>
@@ -765,6 +765,8 @@ async function aiJSON(system, user, ms=9000){
     return null;
   }finally{ clearTimeout(tm); }
 }
+/* 돈이 나가거나 되돌리기 어려운 버튼 — "대신 누르기" 모드에서도 "네" 를 들은 뒤에만 누른다 (데스크톱판 DANGEROUS 와 동일) */
+const DANGEROUS=/신용\s*\/\s*체크카드|체크카드|간편결제|모바일 ?상품권|현금|직원 ?호출|돌아가기|삭제/;
 const FLOW_BTNS=["매장에서 먹기","포장하기","포장","매장","계산","결제","세트로","단품으로","그대로 담아줘","담기","더 담기","결제하기","괜찮아요","추가하기","적립하기","적립 안 함","신용 / 체크카드","일시불","3개월","6개월","간편결제","모바일 상품권","현금","카드 투입","확인","지우기","취소","처음으로","이전","광고 닫기","닫기","장바구니"];
 function menuText(){
   return Object.keys(MENU).map(c=>c+": "+MENU[c].map(([n,p])=>`${n} ${p}원`).join(", ")).join("\n")
@@ -984,6 +986,10 @@ function tick(){
       if(A.waiting.consume){ A.steps.shift(); A.doneSteps.push(A.waiting.step); }
       A.waiting=null; renderPlan();
     }
+    if(A.confirmNode){                   // 여쭙는 사이에 손님이 직접 누르셨다
+      if(A.confirmConsume&&A.steps[0]===A.confirmStep){ A.steps.shift(); A.doneSteps.push(A.confirmStep); }
+      A.confirmNode=null; A.confirmStep=null; A.askHold=null; renderPlan();
+    }
     clearPoint();
   }
   if(A.askHold){                        // 세트/단품을 여쭤본 상태
@@ -1037,6 +1043,13 @@ function tick(){
   pointAt(r.node);
   A.waiting={node:r.node,step:step,consume:!r.keep};
   if(A.autoClick){                       // 대신 눌러드리는 모드 — 누르고 그 단계는 끝낸다
+    const bn0=btnName(r.node);
+    if(DANGEROUS.test(bn0)&&A.confirmNode!==r.node){   // 돈이 걸린 버튼은 "네" 를 듣기 전까지 누르지 않는다
+      A.confirmNode=r.node; A.confirmStep=step; A.confirmConsume=!r.keep;
+      A.waiting=null; A.askHold=A.sig; A.askCart=cartCount();
+      speak("'"+bn0+"' 누를까요? 맞으면 '네'라고 말씀해주세요.");
+      return;
+    }
     const fast=/^[0-9]$/.test(step);     // 번호 키패드는 빠르게
     if(!fast) speak(r.say||("'"+btnName(r.node)+"' 누를게요."));
     const nd=r.node;
@@ -1176,6 +1189,23 @@ function heard(text){
   text=(text||"").trim(); if(!text) return;
   log("어르신",text,"user");
   const nn=norm(text);
+  if(A.confirmNode){                                  // "'현금' 누를까요?" 에 대한 대답
+    const nd=A.confirmNode, st=A.confirmStep, consume=A.confirmConsume;
+    if(/^(네|예|응|어|그래|맞아|맞아요|맞습니다|좋아|좋아요|확인|눌러|눌러줘|해줘|오케)/.test(nn)){
+      A.confirmNode=null; A.confirmStep=null; A.askHold=null;
+      if(consume&&A.steps[0]===st){ A.steps.shift(); A.doneSteps.push(st); renderPlan(); }
+      speak("네, 누를게요."); A.busy=true;
+      setTimeout(()=>{ if(document.body.contains(nd)) nd.click(); },500);
+      setTimeout(()=>{ A.busy=false; A.sig=sig(); clearPoint(); },1000);
+      return;
+    }
+    if(/^(아니|아뇨|아녀|안눌러|안돼|취소|잠깐|기다려|다른)/.test(nn)){
+      A.confirmNode=null; A.confirmStep=null; A.askHold=null;
+      if(A.steps[0]===st){ A.steps.shift(); renderPlan(); }
+      clearPoint(); speak("네, 안 누를게요. 원하시는 걸 말씀해주세요."); return;
+    }
+    A.confirmNode=null; A.confirmStep=null; A.askHold=null;   // 다른 말씀이면 그 말대로 다시 판단
+  }
   if(A.askHold && /세트|단품|버거만|그냥/.test(nn)){   // "세트로 하실래요?" 에 대한 대답 — 남은 순서는 이어서
     A.setChoice=/세트/.test(nn)?"세트로":"단품으로"; A.askHold=null; A.sig=""; renderPlan(); return;
   }
@@ -1297,8 +1327,8 @@ if(!SR){
 function micUI(){
   setTimeout(syncBig,0);
   $("#micbtn").textContent=A.listening?"⏸ 멈추기":"🎤 말하기";
-  const k=$("#kmic");
-  if(k){ k.textContent=A.listening?"⏸ 그만 듣기":"🎤 말로 주문하기"; k.classList.toggle("on",A.listening); }
+  const k=$("#kmic");        // 라벨은 고정 — 켜진 모드는 setMode 가 표시한다
+  if(k) k.textContent=A.listening?"🎤 말로 주문하기 · 듣는 중":"🎤 말로 주문하기";
 }
 const INFRAME = (window.self!==window.top);
 function openInNewTab(){ try{ window.open(location.href,"_blank","noopener"); }catch(_){}}
@@ -1330,8 +1360,12 @@ $("#micbtn").addEventListener("click",async ()=>{
   micUI();
 });
 if(new URLSearchParams(location.search).has("dev")) document.body.classList.add("dev");
-$("#kmic").addEventListener("click",()=>$("#micbtn").click());
-$("#kmode").addEventListener("click",()=>setMode(!A.autoClick,true));
+/* 말로 주문하기 = 말로만 하고 제가 눌러드리는 쪽 / 내가 누를게요 = 짚어드리고 손님이 누르는 쪽 */
+$("#kmic").addEventListener("click",()=>{
+  if(!A.listening) $("#micbtn").click();      // 마이크부터 켜고
+  if(!A.autoClick) setMode(true,true);        // 대신 눌러드리는 모드로
+});
+$("#kguide").addEventListener("click",()=>setMode(false,true));
 /* 글씨 크기 — 보통 → 크게 → 더 크게 → 보통 */
 const ZOOMS=[1,1.18,1.36], ZOOMLBL=["🔍 글씨 크게","🔍 더 크게","🔍 원래대로"];
 let zi=0, autoZoom=false;
@@ -1358,8 +1392,9 @@ function setMode(auto,say){
   $("#mauto").classList.toggle("on",!!auto);  $("#mauto").setAttribute("aria-pressed",String(!!auto));
   setStatus(auto? "말씀하시면 제가 눌러드릴게요" : "뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
   syncBig();
-  const km=$("#kmode");
-  if(km){ km.textContent = auto? "👆 내가 누를게요" : "🤖 대신 눌러주세요"; km.classList.toggle("on",!!auto); }
+  const kg=$("#kguide"), km2=$("#kmic");   // 두 버튼을 나란히 — 지금 켜진 쪽을 강조
+  if(kg){ kg.classList.toggle("on",!auto); kg.setAttribute("aria-pressed",String(!auto)); }
+  if(km2){ km2.classList.toggle("on",!!auto); km2.setAttribute("aria-pressed",String(!!auto)); }
   if(say) speak(auto? "네, 이제 제가 눌러드릴게요. 불고기버거 포장해서 계산해줘, 이렇게 한 번에 말씀하셔도 돼요."
                     : "네, 누를 곳만 알려드릴게요. 편하게 천천히 눌러보세요.");
 }
