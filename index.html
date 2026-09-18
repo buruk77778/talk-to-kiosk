@@ -578,7 +578,7 @@ function render(){
 /* ─────────────── 유휴 타이머 ─────────────── */
 const TIMER_OFF=new Set(["START","CARD","DONE"]);
 function updateTimerBar(){
-  $("#kiosk").classList.toggle("assisted",A.active);
+  $("#kiosk").classList.toggle("assisted",helpOn());
   const off=TIMER_OFF.has(K.screen);
   if(off){ timerbar.textContent=""; timerbar.className="timerbar"; return; }
   if(A.active){ timerbar.textContent="도움 받는 중 — 초기화하지 않습니다"; timerbar.className="timerbar hold"; return; }
@@ -610,7 +610,7 @@ function log(who,txt,cls){
 }
 function setStatus(t){
   $("#astatus").textContent=t; $("#dot").className="dot"+(A.active?" live":"");
-  $("#kiosk").classList.toggle("assisted",A.active);   // 도움 받는 중에만 큰 글씨
+  $("#kiosk").classList.toggle("assisted",helpOn());   // 말로 주문하기·대신 눌러주세요 를 켰을 때만 큰 글씨
 }
 function guide(say,step){
   if(say) $("#guidesay").textContent=say;
@@ -886,6 +886,10 @@ function planStep(step){
   }
   // 세트 팝업에서 '계산' 같은 말 → 취소 금지, 세트/단품부터
   if(K.popup&&/세트로 드시겠어요/.test(K.popup.title)&&!/세트|단품|버거만|그냥/.test(n)){
+    if(A.setChoice){                     // 같은 주문의 두 번째 것부터는 앞에서 고른 대로
+      const e=find(els,A.setChoice==="세트로"?"^세트로":"^단품으로");
+      if(e) return {node:e.el,say:`이것도 ${A.setChoice==="세트로"?"세트로":"햄버거만"} 할게요.`,keep:true};
+    }
     return {say:"세트로 하실래요, 햄버거만 하실래요?",ask:true,keep:true};
   }
   for(const [up,ep,say] of RULES){
@@ -937,6 +941,12 @@ function tick(){
     }
     clearPoint();
   }
+  if(A.askHold){                        // 세트/단품을 여쭤본 상태
+    if(A.askHold===now) return;          // 아직 대답 전
+    if(K.screen==="SETOPT") A.setChoice="세트로";          // 손님이 직접 눌렀다
+    else if(cartCount()>A.askCart) A.setChoice="단품으로";
+    A.askHold=null;
+  }
   if(A.waiting){                        // 아직 안 누르셨다 — 재촉하지 않고 기다린다
     if(!document.body.contains(A.waiting.node)||A.waiting.node.offsetParent===null){
       A.waiting=null; clearPoint();
@@ -964,7 +974,8 @@ function tick(){
     return;
   }
   A.retry=0;
-  if(r.ask){ speak(r.say); A.steps.length=0; renderPlan(); return; }
+  if(r.ask){                             // 손님이 정할 것 — 남은 순서는 그대로 두고 대답(또는 직접 누름)을 기다린다
+    speak(r.say); A.askHold=A.sig; A.askCart=cartCount(); renderPlan(); return; }
   pointAt(r.node);
   A.waiting={node:r.node,step:step,consume:!r.keep};
   if(A.autoClick){                       // 대신 눌러드리는 모드 — 누르고 그 단계는 끝낸다
@@ -1084,6 +1095,9 @@ function heard(text){
   text=(text||"").trim(); if(!text) return;
   log("어르신",text,"user");
   const nn=norm(text);
+  if(A.askHold && /세트|단품|버거만|그냥/.test(nn)){   // "세트로 하실래요?" 에 대한 대답 — 남은 순서는 이어서
+    A.setChoice=/세트/.test(nn)?"세트로":"단품으로"; A.askHold=null; A.sig=""; renderPlan(); return;
+  }
   if(/대신눌러|대신해|네가눌러|자동으로|다눌러/.test(nn)){ setMode(true,true); return; }
   if(/내가누를|직접누를|알려만|짚어만|가르쳐만/.test(nn)){ setMode(false,true); return; }
   if(WAKE.test(norm(text))){          // 이름을 부르면 목소리만 바뀐다 (부르지 않아도 안내는 계속)
@@ -1129,7 +1143,30 @@ function heard(text){
   }
   applySteps(text, splitSteps(text));
 }
+/* "불고기버거 두 개" → 메뉴 단계(+세트/단품 등 딸린 단계)를 개수만큼 반복 */
+const KNUM={"한":1,"하나":1,"두":2,"둘":2,"세":3,"셋":3,"네":4,"넷":4,"다섯":5};
+function qtyAfter(text,name){
+  const t=norm(text), key=norm(name).replace(/\(.\)$/,"");
+  const i=t.indexOf(key); if(i<0) return 1;
+  const m=t.slice(i+key.length).match(/^(?:세트로?|단품으?로?)?(\d+|하나|한|두|둘|세|셋|네|넷|다섯)개/);
+  if(!m) return 1;
+  const q=/^\d+$/.test(m[1])? parseInt(m[1],10) : KNUM[m[1]];
+  return Math.min(Math.max(q||1,1),5);
+}
+function expandQty(text,steps){
+  const items=new Set(ALL_ITEMS.map(x=>x.name)), out=[];
+  for(let i=0;i<steps.length;i++){
+    if(!items.has(steps[i])){ out.push(steps[i]); continue; }
+    const grp=[steps[i]];
+    while(i+1<steps.length && /^(세트로|단품으로|그대로)/.test(steps[i+1])) grp.push(steps[++i]);
+    const q=qtyAfter(text,steps[grp.length?i-grp.length+1:i]);
+    for(let k=0;k<q;k++) out.push(...grp);
+    if(q>1) log("어시스트",`${grp[0]} ${q}개 — ${q}번 담습니다`);
+  }
+  return out;
+}
 function applySteps(text, steps, quiet){
+  steps=expandQty(text,steps); A.setChoice=null; A.askHold=null;
   A.steps = steps.length? steps : [text];
   A.doneSteps=[]; A.retry=0; renderPlan();
   if(steps.length>1 && !quiet){            // 앞말이 끝난 뒤에 첫 단계를 짚는다
@@ -1173,6 +1210,7 @@ if(!SR){
   };
 }
 function micUI(){
+  setTimeout(syncBig,0);
   $("#micbtn").textContent=A.listening?"⏸ 멈추기":"🎤 말하기";
   const k=$("#kmic");
   if(k){ k.textContent=A.listening?"⏸ 그만 듣기":"🎤 말로 주문하기"; k.classList.toggle("on",A.listening); }
@@ -1211,16 +1249,22 @@ $("#kmic").addEventListener("click",()=>$("#micbtn").click());
 $("#kmode").addEventListener("click",()=>setMode(!A.autoClick,true));
 /* 글씨 크기 — 보통 → 크게 → 더 크게 → 보통 */
 const ZOOMS=[1,1.18,1.36], ZOOMLBL=["🔍 글씨 크게","🔍 더 크게","🔍 원래대로"];
-let zi=0;
+let zi=0, autoZoom=false;
+/* 도움이 필요한 분(말로 주문하기 / 대신 눌러주세요)일 때만 자동으로 글씨를 키운다. 일반 손님은 보통 크기. */
+function helpOn(){ return !!(A.active && (A.listening || A.autoClick)); }
+function syncBig(){
+  const on=helpOn();
+  if(on && zi===0){ zi=1; autoZoom=true; applyZoom(); }
+  else if(!on && autoZoom){ zi=0; autoZoom=false; applyZoom(); }
+  $("#kiosk").classList.toggle("assisted",on);
+}
 function applyZoom(){
   document.documentElement.style.setProperty("--kzoom",ZOOMS[zi]);
   $("#kzoom").textContent=ZOOMLBL[zi];
   $("#kzoom").classList.toggle("on",zi>0);
-  try{ localStorage.setItem("kzoom",String(zi)); }catch(_){}
 }
-try{ const z=parseInt(localStorage.getItem("kzoom")||"0",10); if(z>=0&&z<ZOOMS.length) zi=z; }catch(_){}
 applyZoom();
-$("#kzoom").addEventListener("click",()=>{ zi=(zi+1)%ZOOMS.length; applyZoom();
+$("#kzoom").addEventListener("click",()=>{ zi=(zi+1)%ZOOMS.length; autoZoom=false; applyZoom();
   speak(zi===0? "글씨 원래대로 했어요." : "글씨 크게 했어요."); });
 
 function setMode(auto,say){
@@ -1228,6 +1272,7 @@ function setMode(auto,say){
   $("#mguide").classList.toggle("on",!auto); $("#mguide").setAttribute("aria-pressed",String(!auto));
   $("#mauto").classList.toggle("on",!!auto);  $("#mauto").setAttribute("aria-pressed",String(!!auto));
   setStatus(auto? "말씀하시면 제가 눌러드릴게요" : "뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
+  syncBig();
   const km=$("#kmode");
   if(km){ km.textContent = auto? "👆 내가 누를게요" : "🤖 대신 눌러주세요"; km.classList.toggle("on",!!auto); }
   if(say) speak(auto? "네, 이제 제가 눌러드릴게요. 불고기버거 포장해서 계산해줘, 이렇게 한 번에 말씀하셔도 돼요."
