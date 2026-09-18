@@ -527,7 +527,13 @@ function render(){
       body.appendChild(el("div","title","결제 수단을 선택하세요"));
       body.appendChild(el("div","sub",`결제 금액  ${won(cartTotal())}`));
       [["신용 / 체크카드","card"],["간편결제 (QR)","qr"],["모바일 상품권","gift"]].forEach(([lb,kind])=>
-        body.appendChild(mkBtn(b(lb,"big",()=>{K.payKind=kind;go("CARD");}))));
+        body.appendChild(mkBtn(b(lb,"big",()=>{K.payKind=kind;
+          if(kind!=="card"){ go("CARD"); return; }
+          const pick=m=>()=>{ K.inst=m; K.popup=null; go("CARD"); };   // 실제 카드 키오스크처럼 할부부터 고른다
+          popup({title:"할부 선택",body:`결제 금액  ${won(cartTotal())}\n할부 개월을 선택하세요`,
+            buttons:[["일시불","primary",pick("일시불")],["3개월","",pick("3개월")],["6개월","",pick("6개월")]],
+            tinyClose:"취소"});
+        }))));
       body.appendChild(mkBtn(b("현금 (직원 호출)","",()=>popup({title:"직원 호출",body:"직원을 호출했습니다.\n확인을 누르면 주문표가 나옵니다.",buttons:[["확인","",()=>{K.payKind="cash";K.popup=null;go("DONE");}]]}))));
     }
     screenEl.appendChild(body);
@@ -760,7 +766,7 @@ async function aiJSON(system, user, ms=9000){
     return null;
   }finally{ clearTimeout(tm); }
 }
-const FLOW_BTNS=["매장에서 먹기","포장하기","포장","매장","계산","결제","세트로","단품으로","그대로 담아줘","담기","더 담기","결제하기","괜찮아요","추가하기","적립하기","적립 안 함","신용 / 체크카드","간편결제","모바일 상품권","현금","카드 투입","확인","지우기","취소","처음으로","이전","광고 닫기","닫기","장바구니"];
+const FLOW_BTNS=["매장에서 먹기","포장하기","포장","매장","계산","결제","세트로","단품으로","그대로 담아줘","담기","더 담기","결제하기","괜찮아요","추가하기","적립하기","적립 안 함","신용 / 체크카드","일시불","3개월","6개월","간편결제","모바일 상품권","현금","카드 투입","확인","지우기","취소","처음으로","이전","광고 닫기","닫기","장바구니"];
 function menuText(){
   return Object.keys(MENU).map(c=>c+": "+MENU[c].map(([n,p])=>`${n} ${p}원`).join(", ")).join("\n")
        +"\n세트 사이드: "+SET_SIDES.map(([n,x])=>n+(x?` +${x}원`:"")).join(", ")
@@ -870,6 +876,9 @@ const RULES=[
   [/계산|결제|끝|다됐/,"결제하기","계산하러 갈게요."],
   [/^확인$/,"^확인$","확인 누를게요."],
   [/카드/,"신용","카드로 결제할게요."],
+  [/일시불|한번에|한꺼번에/,"^일시불$","일시불로 할게요."],
+  [/3개월|삼개월|석달/,"^3개월$","3개월 할부로 할게요."],
+  [/6개월|육개월|여섯달/,"^6개월$","6개월 할부로 할게요."],
   [/큐알|qr|간편|폰으로/,"간편결제","간편결제로 할게요."],
   [/상품권|기프티콘|쿠폰/,"모바일상품권","모바일 상품권으로 할게요."],
   [/넣었|꽂았|투입/,"카드투입","네, 결제 확인할게요."],
@@ -1076,6 +1085,9 @@ function describe(){
     t=`${popName()} 고르셨네요. 감자튀김이랑 음료가 같이 나오는 세트로 하실래요, 햄버거만 하실래요?`
       +(A.autoClick? " '세트로' 또는 '단품으로' 라고 말씀하세요." : "");
   }
+  else if(K.popup&&/할부/.test(K.popup.title)) t=A.autoClick
+      ? "카드 할부를 고르는 화면이에요. 보통은 일시불로 하시면 돼요. '일시불'이라고 말씀하세요."
+      : "카드 할부를 고르는 화면이에요. 보통은 '일시불' 누르시면 돼요.";
   else if(K.popup&&/추가하시겠어요/.test(K.popup.title)) t="치즈스틱을 더 사라고 권하는 화면이에요. 필요 없으면 안 하셔도 돼요.";
   else if(K.screen==="START") t="주문 시작해 볼까요?";
   else if(K.screen==="DINE") t="여기서 드시고 가세요? 아니면 가져가세요?";
