@@ -705,20 +705,24 @@ function bestItem(els,n){
 }
 
 /* ── AI 판단 (Gemini) — 지금 화면의 버튼 + 손님 말 → 누를 순서와 대답. 키가 없거나 실패하면 규칙으로 ── */
-const AI={key:null, model:null, ready:false, alias:{}, asked:new Set(), fails:0, name:"규칙"};
+/* 키를 숨기는 중계 서버(Cloudflare Worker) 주소 — 키는 서버에만 있고 브라우저에는 오지 않습니다.
+   ?key= 로 직접 키를 넣으면 그 키가 우선합니다. */
+const AI_PROXY_DEFAULT="https://talk-to-kiosk.mujusee1.workers.dev";
+const AI={key:null, proxy:null, model:null, ready:false, alias:{}, asked:new Set(), fails:0, name:"규칙"};
 (function aiInit(){
   try{
     const q=new URLSearchParams(location.search).get("key");
     if(q){ localStorage.setItem("kisooni_key",q); history.replaceState(null,"",location.pathname+(location.search.includes("dev")?"?dev=1":"")); }
     AI.key = (window.KISOONI_KEY||"").trim() || localStorage.getItem("kisooni_key") || null;
   }catch(_){ AI.key=(window.KISOONI_KEY||"").trim()||null; }
-  if(AI.key){ AI.ready=true; AI.name="AI 판단"; }
+  AI.proxy = AI.key ? null : ((window.KISOONI_PROXY||"").trim() || AI_PROXY_DEFAULT || null);
+  if(AI.key||AI.proxy){ AI.ready=true; AI.name="AI 판단"; }
 })();
 const AI_PREF=["gemini-2.5-flash","gemini-3-flash","gemini-2.0-flash","gemini-2.5-flash-lite","gemini-3.1-flash-lite"];
 async function aiModel(){
   if(AI.model) return AI.model;
   try{
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${AI.key}&pageSize=100`);
+    const r=await fetch(AI.key?`https://generativelanguage.googleapis.com/v1beta/models?key=${AI.key}&pageSize=100`:`${AI.proxy}/models`);
     const j=await r.json();
     const names=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent")).map(m=>m.name.replace(/^models\//,""));
     AI.model = AI_PREF.find(p=>names.includes(p)) || names.find(n=>/flash/.test(n)&&!/image|tts|live|audio|8b/.test(n)) || null;
@@ -731,7 +735,7 @@ async function aiJSON(system, user, ms=9000){
   const model=await aiModel();
   const ctrl=new AbortController(); const tm=setTimeout(()=>ctrl.abort(), ms);
   try{
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${AI.key}`,{
+    const r=await fetch(AI.key?`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${AI.key}`:`${AI.proxy}/generate/${model}`,{
       method:"POST", headers:{"Content-Type":"application/json"}, signal:ctrl.signal,
       body:JSON.stringify({system_instruction:{parts:[{text:system}]},
         contents:[{role:"user",parts:[{text:user}]}],
