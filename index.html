@@ -779,7 +779,8 @@ const AI_SYSTEM=`어르신이 패스트푸드 키오스크 앞에서 한 말을 
 규칙:
 - 어르신이 말한 것만 단계로 만듭니다. 말하지 않은 것은 넣지 마세요.
 - 한 단계는 짧은 한마디로 씁니다. 키오스크 버튼에서 찾을 수 있는 말이어야 합니다.
-- "포장해 주세요" → "포장", "먹고 갈게" → "매장에서 먹기", "불고기버거 세트로" → "불고기버거" 다음 "세트로"
+- 먹는 곳은 버튼 이름 그대로 씁니다: 가져가면 "포장하기", 여기서 드시면 "매장에서 먹기". ("포장"/"매장" 처럼 줄이지 마세요.)
+- "불고기버거 세트로" → "불고기버거" 다음 "세트로"
 - 세트를 고르면 사이드와 음료를 정하는 화면이 나옵니다. 바꿔 달라는 말이 없으면 "세트로" 다음에 "그대로 담아줘"를 넣습니다.
 - 메뉴 이름은 어르신이 말한 그대로 씁니다. 수량("두 개")은 단계 이름에 넣지 말고 메뉴 이름만 씁니다.
 - 세트/단품, 포인트 적립, 결제 수단처럼 어르신이 말하지 않은 선택은 넣지 않습니다. 키오스크가 물으면 어르신이 직접 정합니다.
@@ -787,10 +788,10 @@ const AI_SYSTEM=`어르신이 패스트푸드 키오스크 앞에서 한 말을 
 - 계산·결제까지 말했으면 마지막에 "계산"을 넣습니다. 말하지 않았으면 넣지 마세요.
 
 예:
-"불고기버거 세트 하나 포장해 줘" → {"steps": ["포장", "불고기버거", "세트로", "그대로 담아줘"]}
+"불고기버거 세트 하나 포장해 줘" → {"steps": ["포장하기", "불고기버거", "세트로", "그대로 담아줘"]}
 "치즈버거 세트 먹고 갈게 계산까지 해줘" → {"steps": ["매장에서 먹기", "치즈버거", "세트로", "그대로 담아줘", "계산"]}
 "여기서 먹을 건데 치즈버거 단품이랑 콜라 하나" → {"steps": ["매장에서 먹기", "치즈버거", "단품으로", "콜라", "계산"]}
-"불고기버거 포장 계산" → {"steps": ["포장", "불고기버거", "계산"]}
+"불고기버거 포장 계산" → {"steps": ["포장하기", "불고기버거", "계산"]}
 "새우버거 줘" → {"steps": ["새우버거"]}
 
 출력은 아래 JSON 하나만. 다른 글자 금지.
@@ -802,14 +803,23 @@ const AI_SYSTEM=`어르신이 패스트푸드 키오스크 앞에서 한 말을 
 - 주문이면 say 는 짧은 한마디("네, 불고기버거 포장으로 할게요.")로 씁니다. 짧고 쉬운 존댓말.
 출력은 JSON 하나만: {"steps": ["…"], "say": "…"}`;
 
+/* 먹는 곳은 어떻게 말하든(AI 가 어떻게 줄여 쓰든) 버튼 이름으로 맞춰준다 — 데스크톱판과 같은 관용도 */
+const DINE_ALIAS=[[/포장|테이크|가져|싸가|싸주|싸줘/,"포장하기"],
+                  [/매장|여기서|여기|먹고가|먹고갈|먹을|먹고|드시고|식사|점내|홀에서/,"매장에서 먹기"]];
+const MENU_WORD=/버거|치킨|너겟|텐더|핫윙|감자|치즈스틱|어니언|코울슬로|콘샐러드|치즈볼|해쉬브라운|콜라|사이다|주스|커피|라떼|아메리카노|생수|쉐이크|선데|파이|쿠키|케이크|소프트콘|세트/;
+function dineAlias(st){ const n=norm(st);
+  if(MENU_WORD.test(n)) return null;                  // 메뉴 얘기는 먹는 곳으로 바꾸지 않는다
+  for(const [re,name] of DINE_ALIAS) if(re.test(n)) return name;
+  return null; }
 function validSteps(steps){
   const known=new Set([...ALL_ITEMS.map(x=>x.name), ...FLOW_BTNS, ...SET_SIDES.map(x=>x[0]), ...SET_DRINKS.map(x=>x[0])]);
   const vis=readScreen().map(e=>btnName(e.el));
   const out=[];
   for(const st of (steps||[]).map(x=>String(x).trim()).filter(Boolean)){
     if(known.has(st)||vis.includes(st)){ out.push(st); continue; }
-    const hit=[...known].find(k=>norm(k).replace(/\(.\)$/,"")===norm(st)) || vis.find(v=>norm(v)===norm(st));
-    if(hit) out.push(hit); else log("AI","목록에 없는 단계는 뺐습니다: "+st);
+    const hit=[...known].find(k=>norm(k).replace(/\(.\)$/,"")===norm(st)) || vis.find(v=>norm(v)===norm(st)) || dineAlias(st);
+    // 목록에 없어도 버리지 않는다 — 그 화면에 가서 AI 에게 "이 말이 어느 버튼이냐" 물어본다 (데스크톱판과 같은 관용도)
+    if(hit) out.push(hit); else { out.push(st); log("AI","목록에 없는 말 — 화면에서 다시 물어봅니다: "+st); }
   }
   // 데스크톱판 sanitize_steps 와 같은 후처리: 세트가 아닌데 붙은 '그대로 담아줘' 는 뺀다
   const out2=[]; for(const st of out){ if(/^그대로/.test(st) && !out2.some(x=>/세트/.test(x))){ log("AI","세트 주문이 아니어서 '그대로 담아줘' 를 뺐습니다"); continue; } out2.push(st); }
@@ -838,8 +848,8 @@ async function aiPickButton(step){
 const ALL_ITEMS=[].concat(...Object.keys(MENU).map(c=>MENU[c].map(([n])=>({name:n,cat:c}))));
 function splitSteps(utt){
   const n=norm(utt), steps=[];
-  if(/매장|여기서|먹고가|먹고|먹을/.test(n)) steps.push("매장에서 먹기");
-  else if(/포장|가져|싸주|싸줘|테이크/.test(n)) steps.push("포장하기");
+  if(/포장|가져|싸주|싸줘|테이크/.test(n)) steps.push("포장하기");
+  else if(/매장|여기서|먹고가|먹고|먹을|드시고|식사|점내|홀에서/.test(n)) steps.push("매장에서 먹기");
   const hits=[];
   ALL_ITEMS.forEach(it=>{
     const key=norm(it.name).replace(/\(.\)$/,"");
@@ -864,8 +874,8 @@ function splitSteps(utt){
 /* 한 단계 → 이 화면에서 누를 버튼 */
 const OPTIONAL=new Set(["괜찮아요","적립 안 함","담기"]);
 const RULES=[
-  [/매장|여기서|먹고|먹을/,"매장에서먹기","여기서 드시는 걸로 할게요."],
   [/포장|가져|싸/,"포장하기","가져가시는 걸로 할게요."],
+  [/매장|여기서|먹고|먹을|먹고가|드시고|식사|점내|홀에서/,"매장에서먹기","여기서 드시는 걸로 할게요."],
   [/^세트/,"^세트로","세트로 할게요."],
   [/단품|버거만|그냥/,"^단품으로","햄버거만 담을게요."],
   [/담기|그대로|기본|담아/,"^담기$","그대로 담을게요."],
@@ -923,6 +933,9 @@ function planStep(step){
       if(tab) return {node:tab.el,say:`${it.cat} 메뉴를 보여드릴게요.`,keep:true};
     }
   }
+  // 먹는 곳 화면인데 먹는 곳 단계가 없다 — "이 화면엔 없네요" 대신 여쭙고 남은 순서는 그대로 둔다
+  if(K.screen==="DINE"&&!K.popup)
+    return {say:"여기서 드시고 가실래요, 포장하실래요? 편한 쪽을 눌러주세요.",ask:true,keep:true};
   // 화면을 넘겨야 다음이 나오는 경우
   const gogo=find(els,"^담기$|^확인$|^다음$");
   if(gogo&&!/계산|결제/.test(n)) return {node:gogo.el,say:`${gogo.text} 먼저 누를게요.`,keep:true};
