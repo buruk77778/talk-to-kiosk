@@ -908,7 +908,7 @@ function planStep(step){
   // 광고 팝업은 무조건 먼저 닫는다
   if(K.popup&&/신메뉴/.test(K.popup.title)){
     const e=find(els,"광고닫기|^닫기");
-    if(e) return {node:e.el,say:"광고가 떴네요. 제가 닫아드릴게요.",keep:true};
+    if(e) return {node:e.el,say:"광고를 닫습니다.",keep:true};
   }
   if(K.screen==="START"){
     const e=find(els,"화면을터치");
