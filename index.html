@@ -1016,13 +1016,6 @@ function tick(){
     A.busy=true; setTimeout(()=>{ A.busy=false; },4500);
     return;
   }
-  // 대신 누르기 모드에서는 광고를 말없이 닫는다 — "괜찮아" 라고 말하게 하지 않는다
-  if(A.autoClick&&K.popup&&/신메뉴/.test(K.popup.title||"")&&A.adSig!==now){
-    const ad=readScreen().find(e=>/광고닫기|^닫기$/.test(norm(btnName(e.el))));
-    if(ad){ A.adSig=now; const nd=ad.el; pointAt(nd); speak("광고를 닫습니다."); A.busy=true;
-      setTimeout(()=>{ if(document.body.contains(nd)) nd.click(); },600);
-      setTimeout(()=>{ A.busy=false; A.sig=sig(); clearPoint(); },900); return; }
-  }
   if(!A.steps.length){ describe(); return; }
   const step=A.steps[0];
   renderPlan();
@@ -1162,7 +1155,8 @@ function describe(){
       ? "더 드시라고 권하는 거예요. 필요 없으시면"
       : "광고예요. 안 보셔도 돼요.";   // 뒤 문장은 모드에 따라 붙는다
     if(close){
-      const line=t2+(A.autoClick? " 괜찮아, 하고 말씀하시면 넘어가요." : " '"+btnName(close.el)+"' 눌러보세요.");
+      const line=t2+(A.autoClick? (/광고/.test(t2)? " 닫아줘, 하고 말씀하시면 닫아드릴게요." : " 괜찮아, 하고 말씀하시면 넘어가요.")
+                                : " '"+btnName(close.el)+"' 눌러보세요.");
       if(line!==lastDesc){ lastDesc=line; A.descAt=Date.now(); speak(line); }
       return;
     }
