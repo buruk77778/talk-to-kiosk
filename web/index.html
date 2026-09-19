@@ -1,0 +1,1498 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>키순이 — 키오스크 안내 도우미</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@500;700;900&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#e9e5de; --panel:#ffffff; --panel-2:#f5f2ec; --ink:#221f1c; --ink-soft:#5d574e;
+  --line:#d8d2c8; --brand:#c8362b; --brand-ink:#ffffff; --assist:#1f3350; --assist-ink:#f7f3ea;
+  --spark:#e59100; --ok:#2e7d4f; --shadow:0 1px 0 rgba(34,31,28,.06),0 8px 24px -12px rgba(34,31,28,.35);
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ground:#16161a; --panel:#232228; --panel-2:#1c1c21; --ink:#f0ece4; --ink-soft:#a8a196;
+  --line:#3a3841; --brand:#e5574a; --brand-ink:#1a0f0e; --assist:#0f1c2e; --assist-ink:#f2ede4;
+  --spark:#ffb02e; --ok:#5fc98a; --shadow:0 1px 0 rgba(0,0,0,.4),0 10px 30px -14px rgba(0,0,0,.8);
+}}
+:root[data-theme="dark"]{
+  --ground:#16161a; --panel:#232228; --panel-2:#1c1c21; --ink:#f0ece4; --ink-soft:#a8a196;
+  --line:#3a3841; --brand:#e5574a; --brand-ink:#1a0f0e; --assist:#0f1c2e; --assist-ink:#f2ede4;
+  --spark:#ffb02e; --ok:#5fc98a; --shadow:0 1px 0 rgba(0,0,0,.4),0 10px 30px -14px rgba(0,0,0,.8);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--ground);color:var(--ink);
+  font-family:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+h1,h2,h3,.disp{font-family:"Gothic A1","IBM Plex Sans KR",system-ui,sans-serif;text-wrap:balance}
+button{font:inherit;color:inherit}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:16px;padding-block:22px 40px}
+
+/* ── 머리말 ── */
+.top{display:flex;flex-wrap:wrap;gap:14px 20px;align-items:flex-end;justify-content:space-between;margin-bottom:18px}
+.top h1{margin:0;font-size:clamp(26px,4.6vw,38px);font-weight:900;letter-spacing:-.02em}
+.top h1 em{font-style:normal;color:var(--brand)}
+.top p{margin:6px 0 0;color:var(--ink-soft);max-width:52ch}
+.badges{display:flex;gap:8px;flex-wrap:wrap}
+.badge{font-size:12px;font-weight:600;padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink-soft)}
+
+/* ── 배치 ── */
+.stage{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:820px){.stage{grid-template-columns:1fr}}
+
+/* ── 키오스크 ── */
+.kioskwrap{position:relative}
+.kiosk{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;height:clamp(340px,46vh,470px)}
+.timerbar{flex:0 0 auto;font-size:12px;padding:5px 10px;text-align:right;color:var(--ink-soft);
+  background:var(--panel-2);border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.timerbar.warn{color:var(--brand-ink);background:var(--brand);font-weight:700}
+.timerbar.hold{color:var(--ok)}
+.screen{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
+.khead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel-2)}
+.khead .t{font-weight:700;font-size:17px;flex:1}
+.body{padding:14px 12px;display:flex;flex-direction:column;gap:12px;flex:1}
+.kiosk button{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px 10px;
+  cursor:pointer;font-weight:600;transition:transform .08s ease,box-shadow .12s ease}
+.kiosk button:active{transform:translateY(1px)}
+.kiosk button:focus-visible{outline:3px solid var(--spark);outline-offset:2px}
+.kiosk button.primary{background:var(--brand);color:var(--brand-ink);border-color:transparent}
+.kiosk button.minor{background:transparent;border-color:transparent;color:var(--ink-soft);font-size:13px;padding:6px 8px}
+.kiosk button.tiny{font-size:11px;padding:4px 7px;color:var(--ink-soft);background:transparent;border-color:var(--line)}
+.logo{text-align:center;font-family:"Gothic A1";font-weight:900;font-size:26px;color:var(--brand);padding:22px 0 10px}
+.touch{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;font-size:20px;font-weight:700;line-height:1.4;margin:0 12px 12px}
+.langrow{display:flex;gap:6px;padding:8px 12px;border-top:1px solid var(--line)}
+.langrow .sp{flex:1}
+.big{min-height:92px;font-size:19px}
+.cats{display:flex;border-bottom:1px solid var(--line)}
+.cats button{flex:1;border:0;border-radius:0;background:transparent;font-size:13px;padding:10px 2px;color:var(--ink-soft)}
+.cats button[aria-selected="true"]{color:var(--brand);box-shadow:inset 0 -3px 0 var(--brand);font-weight:700}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;padding:10px 12px}
+.tile{display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;font-size:12px;min-height:74px;line-height:1.3}
+.tile .nm{font-weight:600}
+.tile .pr{color:var(--ink-soft);font-size:11px;font-variant-numeric:tabular-nums}
+.cartbar{display:flex;gap:8px;align-items:center;padding:9px 10px;border-top:1px solid var(--line);background:var(--panel-2);
+  position:sticky;bottom:0;z-index:3}
+.cartbar .sum{flex:1;font-weight:700;font-size:13px;font-variant-numeric:tabular-nums}
+.cartbar button{padding:9px 12px;font-size:13px}
+.opts{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.opts button{font-size:12px;min-height:50px;line-height:1.25}
+.opts button[aria-pressed="true"]{border-color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand);color:var(--brand)}
+.sect{font-weight:700;font-size:13px;color:var(--ink-soft);margin-top:4px}
+.row{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:13px}
+.row .nm{flex:1}
+.row .qtybtn{padding:4px 10px}
+.center{text-align:center}
+.title{font-size:20px;font-weight:800;text-align:center;line-height:1.35}
+.sub{color:var(--ink-soft);font-size:13px;text-align:center}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.pad button{min-height:44px;font-size:17px;font-variant-numeric:tabular-nums}
+.phonebox{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);text-align:center;
+  font-size:20px;letter-spacing:3px;min-height:44px;padding:7px;font-variant-numeric:tabular-nums}
+.slot{border:2px dashed var(--line);border-radius:12px;min-height:120px;display:flex;align-items:center;
+  justify-content:center;color:var(--ink-soft);font-size:13px;text-align:center;padding:10px}
+.ordernum{font-family:"Gothic A1";font-weight:900;font-size:46px;color:var(--brand);text-align:center;font-variant-numeric:tabular-nums}
+.toast{position:absolute;left:50%;transform:translateX(-50%);bottom:86px;background:rgba(34,31,28,.92);color:#fff;
+  padding:8px 16px;border-radius:999px;font-size:13px;z-index:6;pointer-events:none}
+/* 팝업 */
+.pop{position:absolute;left:0;right:0;top:0;bottom:0;background:rgba(20,18,16,.55);display:flex;align-items:center;justify-content:center;padding:18px;z-index:5}
+.popcard{background:var(--panel);border-radius:14px;padding:16px;width:100%;max-width:300px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow)}
+.popcard h3{margin:0;font-size:17px}
+.popcard p{margin:0;color:var(--ink-soft);font-size:13px;white-space:pre-line}
+.popcard p.bigbody{font-size:15px;color:var(--ink)}
+.popbtns{display:flex;flex-direction:column;gap:7px}
+.poptiny{display:flex;justify-content:flex-end}
+/* 어시스트가 누른 자리 */
+.hit{position:relative;z-index:7;box-shadow:0 0 0 3px var(--spark),0 0 0 9px rgba(229,145,0,.28)!important;border-radius:10px}
+@media (prefers-reduced-motion:no-preference){.hit{animation:tap .5s ease}}
+@keyframes tap{0%{transform:scale(1)}40%{transform:scale(.95)}100%{transform:scale(1)}}
+/* 여기를 눌러주세요 — 손님이 직접 누를 곳 */
+.point{position:relative;z-index:7;box-shadow:0 0 0 4px var(--spark),0 0 0 12px rgba(229,145,0,.24)!important;border-radius:10px}
+@media (prefers-reduced-motion:no-preference){.point{animation:pointpulse 1.2s ease-in-out infinite}}
+@keyframes pointpulse{0%,100%{box-shadow:0 0 0 4px var(--spark),0 0 0 10px rgba(229,145,0,.16)}50%{box-shadow:0 0 0 4px var(--spark),0 0 0 18px rgba(229,145,0,.34)}}
+/* 여기를 누르라는 화살표 — 데스크톱판(kiosk_assist.py)과 같은 굵은 화살표 */
+.point::after{content:"";position:absolute;left:50%;bottom:100%;transform:translateX(-50%);margin-bottom:8px;
+  width:46px;height:53px;pointer-events:none;z-index:9;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-3 -3 58 66'%3E%3Cpolygon points='26,60 0,26 15,26 15,0 37,0 37,26 52,26' fill='%23ff6a00' stroke='%23ffffff' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center/contain;
+  filter:drop-shadow(0 3px 6px rgba(0,0,0,.35))}
+/* 위에 자리가 없으면 아래에서 위로 (데스크톱판과 동일한 규칙) */
+.point.below::after{top:100%;bottom:auto;margin:8px 0 0;transform:translateX(-50%) rotate(180deg)}
+/* 도움 받는 중에만 키오스크 글씨가 커진다 (평소엔 실제 키오스크처럼 작게) */
+.kiosk button,.kiosk .khead .t,.kiosk .title,.kiosk .sub,.kiosk .tile .pr,.kiosk .cartbar .sum{transition:font-size .18s ease}
+.kiosk.assisted .khead .t{font-size:21px}
+.kiosk.assisted button{font-size:16px}
+.kiosk.assisted .touch{font-size:25px}
+.kiosk.assisted .cats button{font-size:15px;padding:12px 2px}
+.kiosk.assisted .grid{grid-template-columns:repeat(2,1fr);gap:9px}
+.kiosk.assisted .tile{font-size:16px;min-height:88px}
+.kiosk.assisted .tile .pr{font-size:14px}
+.kiosk.assisted .cartbar .sum{font-size:16px}
+.kiosk.assisted .cartbar button{font-size:15px;padding:12px 14px}
+.kiosk.assisted .title{font-size:25px}
+.kiosk.assisted .sub{font-size:16px}
+.kiosk.assisted .sect{font-size:15px}
+.kiosk.assisted .row{font-size:16px}
+.kiosk.assisted .opts button{font-size:14px;min-height:58px}
+.kiosk.assisted .pad button{font-size:22px;min-height:52px}
+.kiosk.assisted .popcard{max-width:330px}
+.kiosk.assisted .popcard h3{font-size:21px}
+.kiosk.assisted .popcard p{font-size:16px}
+.kiosk.assisted .popcard p.bigbody{font-size:18px}
+.kiosk.assisted .timerbar{font-size:14px;font-weight:700}
+/* 큰 글씨 안내 (키오스크 위에 겹침) */
+.guide{margin:10px 0 0;pointer-events:none;background:var(--assist);color:var(--assist-ink);
+  border:3px solid var(--spark);border-radius:14px;padding:10px 12px 12px;z-index:8;box-shadow:var(--shadow);display:none}
+.guide .say{max-height:3.4em;overflow:auto}
+.guide.on{display:block}
+.guide .who{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--spark);margin-bottom:4px}
+.guide .say{font-family:"Gothic A1";font-weight:900;font-size:clamp(19px,2.2vw,25px);line-height:1.3;letter-spacing:-.01em}
+.guide .step{margin-top:8px;font-size:13px;opacity:.85;border-top:1px solid rgba(255,255,255,.18);padding-top:6px}
+
+/* ── 어시스트 패널 ── */
+.assist{background:var(--assist);color:var(--assist-ink);border-radius:var(--r);box-shadow:var(--shadow);
+  display:flex;flex-direction:column;overflow:hidden;min-height:640px}
+.ahead{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.12)}
+.dot{width:10px;height:10px;border-radius:50%;background:#6b7787;flex:0 0 auto}
+.dot.live{background:var(--spark);box-shadow:0 0 0 4px rgba(229,145,0,.25)}
+.ahead .nm{font-family:"Gothic A1";font-weight:700;font-size:17px;flex:1}
+.ahead .st{font-size:12px;opacity:.75}
+.mic{display:flex;gap:10px;padding:14px 16px;align-items:center;flex-wrap:wrap}
+.mic button{border:0;border-radius:999px;padding:12px 18px;font-weight:700;cursor:pointer;background:var(--spark);color:#2a1a00}
+.mic button.ghost{background:rgba(255,255,255,.1);color:var(--assist-ink)}
+.mic button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+.mic .hint{font-size:12px;opacity:.7;flex-basis:100%}
+.modes{display:flex;gap:8px;padding:12px 16px 0;flex-wrap:wrap}
+.modes button{flex:1 1 200px;border:2px solid rgba(255,255,255,.25);border-radius:12px;padding:10px 12px;cursor:pointer;
+  background:rgba(255,255,255,.06);color:var(--assist-ink);font-weight:700;font-size:14px;text-align:left;line-height:1.35}
+.modes button small{display:block;font-weight:500;font-size:12px;opacity:.75;margin-top:2px}
+.modes button.on{border-color:var(--spark);background:rgba(229,145,0,.16)}
+.modes button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+
+/* ── 기본 = 실제 키오스크 화면. 설명·개발 패널은 ?dev=1 에서만 ── */
+body{background:#0b0b0d}
+.wrap{max-width:none;padding:0}
+.top,.legend,.foot,.assist{display:none}
+.stage{display:block}
+.kioskwrap{width:min(560px,100vw);height:100vh;margin:0 auto;display:flex;flex-direction:column;gap:0}
+.kiosk{flex:1 1 auto;height:auto;border-radius:0;border:0;zoom:var(--kzoom,1)}
+.guide{margin:0;border-radius:0;border:0;border-top:3px solid var(--spark);max-height:34vh;overflow:auto}
+.guide .say{font-size:clamp(19px,2.5vw,24px);max-height:none}
+
+/* 키오스크 하단 조작 줄 — 실제 제품에도 있는 버튼만 */
+.kctl{display:flex;gap:8px;padding:8px 10px;background:var(--assist);border-top:1px solid rgba(255,255,255,.12)}
+.kctl button{flex:1;border:2px solid rgba(255,255,255,.28);border-radius:12px;padding:12px 8px;cursor:pointer;
+  background:rgba(255,255,255,.08);color:var(--assist-ink);font-weight:800;font-size:14px;white-space:nowrap}
+.kctl button.on{border-color:var(--spark);background:rgba(229,145,0,.22)}
+.kctl button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+@media (max-width:480px){
+  .kctl{gap:6px;padding:8px 6px}
+  .kctl button{font-size:12.5px;padding:11px 4px;white-space:normal;line-height:1.2}
+}
+
+/* ?dev=1 — 만든 사람용 화면 (설명·로그·타이핑) */
+body.dev{background:var(--bg)}
+body.dev .wrap{max-width:1080px;padding-inline:16px;padding-block:22px 40px}
+body.dev .top,body.dev .legend,body.dev .foot{display:block}
+body.dev .top{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between}
+body.dev .legend{display:grid}
+body.dev .foot{display:flex}
+body.dev .assist{display:block}
+body.dev .stage{display:grid}
+body.dev .kioskwrap{width:auto;height:auto;display:block}
+body.dev .kiosk{height:clamp(340px,46vh,470px);border-radius:var(--r);border:1px solid var(--line)}
+body.dev .guide{margin:10px 0 0;border:3px solid var(--spark);border-radius:14px;max-height:none}
+body.dev .kctl{display:none}
+.chips{display:flex;flex-wrap:wrap;gap:7px;padding:0 16px 12px}
+.chips button{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:var(--assist-ink);
+  border-radius:999px;padding:7px 12px;font-size:12.5px;cursor:pointer}
+.chips button:hover{background:rgba(255,255,255,.16)}
+.typerow{display:flex;gap:8px;padding:0 16px 14px}
+.typerow input{flex:1;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.2);
+  color:var(--assist-ink);padding:11px 12px;font:inherit}
+.typerow input::placeholder{color:rgba(247,243,234,.45)}
+.typerow button{border:0;border-radius:10px;padding:11px 15px;background:rgba(255,255,255,.14);color:var(--assist-ink);font-weight:600;cursor:pointer}
+.plan{padding:0 16px 12px;display:flex;flex-wrap:wrap;gap:6px}
+.plan .p{font-size:12px;padding:5px 10px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14)}
+.plan .p.now{background:var(--spark);color:#2a1a00;border-color:transparent;font-weight:700}
+.plan .p.done{opacity:.4;text-decoration:line-through}
+.logbox{flex:1;overflow-y:auto;padding:4px 16px 16px;border-top:1px solid rgba(255,255,255,.12);margin-top:4px}
+.line{display:flex;gap:8px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.07);font-size:13.5px}
+.line .who{flex:0 0 46px;font-size:11px;opacity:.6;padding-top:3px}
+.line.user .txt{font-weight:600}
+.line.act .txt{color:var(--spark)}
+.legend{margin-top:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.card h3{margin:0 0 6px;font-size:14px;letter-spacing:.02em;text-transform:uppercase;color:var(--ink-soft)}
+.card p{margin:0;font-size:13.5px;color:var(--ink)}
+.foot{margin-top:18px;color:var(--ink-soft);font-size:12.5px;display:flex;gap:14px;flex-wrap:wrap}
+.foot a{color:var(--brand)}
+</style>
+</head>
+<body style="margin:0">
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1><em>키순이</em> · 키오스크 안내 도우미</h1>
+      <p>화면마다 <b>뭘 누르면 되는지</b> 읽어주고 누를 자리를 짚어줍니다. 누르는 건 손님이 직접 — 대신 누르지 않습니다. 아래 키오스크는 광고 팝업·세트 권유·30초 유휴 초기화까지 진짜 매장 흐름 그대로입니다.</p>
+    </div>
+    <div class="badges">
+      <span class="badge">설치 없음 · 브라우저에서 바로</span>
+      <span class="badge">말 안 해도 됩니다 (음성은 선택)</span>
+      <span class="badge">대신 누르지 않습니다</span>
+    </div>
+  </header>
+
+  <div class="stage">
+    <!-- 키오스크 -->
+    <div class="kioskwrap">
+      <div class="kiosk" id="kiosk">
+        <div class="timerbar" id="timerbar"></div>
+        <div class="screen" id="screen"></div>
+        <div id="popmount"></div>
+      </div>
+      <div class="guide" id="guide"><div class="who" id="guidewho">도우미</div><div class="say" id="guidesay"></div><div class="step" id="guidestep"></div></div>
+      <div class="kctl" id="kctl">
+        <button id="kmic" aria-pressed="false">🎤 말로 주문하기</button>
+        <button id="kguide" class="on" aria-pressed="true">👆 내가 누를게요</button>
+        <button id="kzoom" title="글씨 크기">🔍 글씨 크게</button>
+      </div>
+    </div>
+
+    <!-- 어시스트 -->
+    <section class="assist" aria-label="어시스트">
+      <div class="ahead">
+        <span class="dot" id="dot"></span>
+        <span class="nm" id="persona">키순이</span>
+        <span class="st" id="astatus">뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요</span>
+      </div>
+
+      <div class="modes" role="group" aria-label="도움 방식">
+        <button id="mguide" class="on" aria-pressed="true">👆 제가 알려드릴게요<small>누를 곳을 짚어드려요 — 누르는 건 직접</small></button>
+        <button id="mauto" aria-pressed="false">🤖 대신 눌러드릴게요<small>말로만 하고 싶을 때 — 제가 눌러드려요</small></button>
+      </div>
+
+      <div class="mic">
+        <button id="micbtn">🎤 말하기</button>
+        <button class="ghost" id="mutebtn">🔈 소리 끄기</button>
+        <button class="ghost" id="resetbtn">처음부터</button>
+        <button class="ghost" id="newtab" hidden>↗ 새 탭에서 열기 (마이크)</button>
+        <span class="hint" id="michint">말은 안 하셔도 됩니다 — 화면마다 뭘 누르면 되는지 알려드려요. 말로 시키고 싶으면 마이크를 켜거나 아래에 타이핑하세요(그래도 누르는 건 직접).</span>
+      </div>
+
+      <div class="chips" id="chips"></div>
+
+      <div class="typerow">
+        <label for="say" class="visually-hidden" style="position:absolute;left:-9999px">할 말</label>
+        <input id="say" placeholder="예) 불고기버거 포장해서 계산해줘" autocomplete="off">
+        <button id="sendbtn">보내기</button>
+      </div>
+
+      <div class="plan" id="plan"></div>
+      <div class="logbox" id="log"></div>
+    </section>
+  </div>
+
+  <div class="legend">
+    <div class="card"><h3>화면을 읽습니다</h3><p>지금 화면에 어떤 버튼이 있는지 그대로 읽어서, 어르신 말과 맞춰봅니다. 키오스크를 고칠 필요가 없습니다.</p></div>
+    <div class="card"><h3>누를 곳을 짚어줍니다</h3><p>고를 수 있는 것을 읽어주고, 누를 자리를 노란 테두리로 보여줍니다. 말로 시키면 <em>포장 → 메뉴 → 단품 → 계산</em> 순서로 한 곳씩 짚어줍니다. 누르는 건 언제나 손님이 직접 — 잘못 담길 일이 없습니다.</p></div>
+    <div class="card"><h3>기다려 줍니다</h3><p>안내가 켜져 있는 동안에는 30초 유휴 초기화를 막습니다. 천천히 눌러도 주문이 날아가지 않습니다.</p></div>
+  </div>
+
+  <div class="foot">
+    <span>미리버거는 시연용 가상 매장입니다. · v0918-할부</span>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+(function(){
+"use strict";
+/* ─────────────── 메뉴 데이터 ─────────────── */
+const MENU = {
+  "버거":[["불고기버거",4500],["치즈버거",4000],["새우버거",4900],["더블불고기버거",6200],["데리버거",3800],["치킨버거",5200],["한우버거",8900],["모짜렐라버거",6800],["새우더블버거",7400],["베이컨치즈버거",6500],["핫치킨버거",5500],["트러플머쉬룸버거",8200]],
+  "치킨":[["순살치킨 4조각",6000],["순살치킨 8조각",11000],["치킨너겟 5조각",3500],["치킨너겟 10조각",6500],["치킨텐더 3조각",4800],["핫윙 4조각",5500]],
+  "사이드":[["감자튀김 (M)",2000],["감자튀김 (L)",2500],["치즈스틱",2500],["양념감자",2600],["어니언링",2700],["코울슬로",1800],["콘샐러드",1800],["치즈볼",2900],["해쉬브라운",1500]],
+  "음료":[["콜라 (M)",1800],["콜라 (L)",2200],["제로콜라 (M)",1800],["사이다 (M)",1800],["아메리카노",2500],["카페라떼",3000],["오렌지주스",2300],["밀크쉐이크",3200],["생수",1000]],
+  "디저트":[["소프트콘",700],["애플파이",1500],["초코선데",2500],["딸기선데",2500],["치즈케이크",3500],["쿠키",1200]]
+};
+const SET_BASE=3000;
+const SET_SIDES=[["감자튀김 (M)",0],["치즈스틱",600],["양념감자",500],["어니언링",700],["코울슬로",0],["콘샐러드",0]];
+const SET_DRINKS=[["콜라 (M)",0],["제로콜라 (M)",0],["사이다 (M)",0],["아메리카노",500],["오렌지주스",400],["밀크쉐이크",1200]];
+const UPSELL=["치즈스틱",2500];
+const won = n => n.toLocaleString("ko-KR")+"원";
+
+/* ─────────────── 키오스크 상태 ─────────────── */
+const K = {
+  screen:"START", cart:[], dine:null, upsold:false, cat:"버거",
+  setBurger:null, setSide:0, setDrink:0, payStep:0, phone:"", payKind:"card",
+  popup:null, remaining:30, timeout:30, orderNo:""
+};
+const $ = s => document.querySelector(s);
+const screenEl=$("#screen"), popmount=$("#popmount"), timerbar=$("#timerbar");
+
+function cartCount(){return K.cart.reduce((a,i)=>a+i.qty,0);}
+function cartTotal(){return K.cart.reduce((a,i)=>a+i.price*i.qty,0);}
+function addItem(name,price,detail){
+  const f=K.cart.find(i=>i.name===name&&i.detail===(detail||""));
+  if(f) f.qty++; else K.cart.push({name,price,qty:1,detail:detail||""});
+}
+function go(s){ K.popup=null; K.screen=s; touch(); render(); onEnter(s); }
+function resetAll(){ K.cart=[];K.dine=null;K.upsold=false;K.payStep=0;K.phone="";K.payKind="card";K.cat="버거"; go("START"); }
+function touch(){ K.remaining=K.timeout; }
+function toast(t){
+  const el=document.createElement("div"); el.className="toast"; el.textContent=t;
+  $("#kiosk").appendChild(el); setTimeout(()=>el.remove(),1300);
+}
+function popup(o){ K.popup=o; render(); }
+function closePopup(){ K.popup=null; render(); }
+
+function onEnter(s){
+  if(s==="START"){
+    popup({title:"신메뉴 출시!",body:"트러플머쉬룸버거\n지금 세트 주문 시 치즈스틱 무료 증정",bigBody:true,
+      buttons:[["자세히 보기","primary",()=>{}]],tinyClose:"광고 닫기"});
+  }
+  if(s==="DONE"){ K.orderNo="A-"+(100+Math.floor(Math.random()*900)); render(); setTimeout(()=>{ if(K.screen==="DONE") resetAll(); },9000); }
+}
+
+/* ─────────────── 화면 그리기 ─────────────── */
+function b(label,cls,fn,name){
+  return {label,cls:cls||"",fn:fn||(()=>{}),name:name||label};
+}
+function el(tag,cls,txt){const e=document.createElement(tag); if(cls)e.className=cls; if(txt!=null)e.textContent=txt; return e;}
+function mkBtn(o){
+  const e=el("button",o.cls,null);
+  e.textContent=o.label;
+  e.dataset.name=o.name.replace(/\n/g," ");
+  e.addEventListener("click",()=>{ touch(); o.fn(); });
+  return e;
+}
+function header(title,rightBtn){
+  const h=el("div","khead");
+  h.appendChild(el("span","t",title));
+  if(rightBtn) h.appendChild(mkBtn(rightBtn));
+  return h;
+}
+function cartBar(){
+  const bar=el("div","cartbar");
+  bar.appendChild(el("span","sum",`${cartCount()}개 · ${won(cartTotal())}`));
+  bar.appendChild(mkBtn(b("장바구니","",()=>go("CART"))));
+  bar.appendChild(mkBtn(b("결제하기","primary",startCheckout)));
+  return bar;
+}
+function startCheckout(){
+  if(!K.cart.length){ popup({title:"장바구니가 비어 있어요",body:"메뉴를 먼저 선택해주세요.",buttons:[["확인","",closePopup]]}); return; }
+  if(!K.upsold){
+    K.upsold=true;
+    popup({title:`${UPSELL[0]} 추가하시겠어요?`,body:`지금 추가하면 ${won(UPSELL[1])}\n바삭한 ${UPSELL[0]}과 함께 드세요!`,bigBody:true,
+      buttons:[["괜찮아요","minor",()=>{K.payStep=0;go("PAY");}],["추가하기","primary",()=>{addItem(UPSELL[0],UPSELL[1]);K.payStep=0;go("PAY");}]]});
+    return;
+  }
+  K.payStep=0; go("PAY");
+}
+function tileClick(name,price,cat){
+  if(cat==="버거"){
+    popup({title:"세트로 드시겠어요?",body:`${name}\n세트: 사이드 + 음료 포함`,
+      buttons:[["단품으로","",()=>{closePopup();addItem(name,price);toast(`${name} 담았습니다`);render();}],
+               ["세트로 (+3,000원)","primary",()=>{K.setBurger=[name,price];K.setSide=0;K.setDrink=0;go("SETOPT");}]],
+      tinyClose:"취소 (다른 메뉴 고르기)"});
+  } else { addItem(name,price); toast(`${name} 담았습니다`); render(); }
+}
+
+function render(){
+  screenEl.innerHTML=""; popmount.innerHTML="";
+  const s=K.screen;
+
+  if(s==="START"){
+    screenEl.appendChild(el("div","logo","미리버거"));
+    const t=mkBtn(b("주문하려면\n화면을 터치하세요","touch",()=>go("DINE")));
+    t.style.whiteSpace="pre-line"; screenEl.appendChild(t);
+    const row=el("div","langrow");
+    row.appendChild(el("div","sp"));
+    row.appendChild(mkBtn(b("직원 호출","tiny",()=>popup({title:"직원 호출",body:"직원을 호출했습니다.\n잠시만 기다려주세요.",buttons:[["확인","",closePopup]]}))));
+    screenEl.appendChild(row);
+  }
+
+  if(s==="DINE"){
+    screenEl.appendChild(header("어디서 드시나요?",b("이전","minor",()=>go("START"))));
+    const body=el("div","body");
+    [["매장에서 먹기","매장"],["포장하기","포장"]].forEach(([lb,v])=>
+      body.appendChild(mkBtn(b(lb,"big",()=>{K.dine=v;go("MENU");}))));
+    screenEl.appendChild(body);
+  }
+
+  if(s==="MENU"){
+    screenEl.appendChild(header("메뉴를 선택하세요",b("처음으로","minor",()=>popup({
+      title:"처음으로 돌아갈까요?",body:"장바구니에 담긴 메뉴가 모두 삭제됩니다.",
+      buttons:[["취소","",closePopup],["돌아가기","primary",resetAll]]}))));
+    const cats=el("div","cats");
+    Object.keys(MENU).forEach(c=>{
+      const bt=mkBtn(b(c,"",()=>{K.cat=c;render();}));
+      bt.setAttribute("aria-selected",c===K.cat?"true":"false");
+      cats.appendChild(bt);
+    });
+    screenEl.appendChild(cats);
+    const g=el("div","grid");
+    MENU[K.cat].forEach(([n,p])=>{
+      const t=mkBtn(b("","tile",()=>tileClick(n,p,K.cat),`${n} ${won(p)}`));
+      t.textContent=""; t.appendChild(el("span","nm",n)); t.appendChild(el("span","pr",won(p)));
+      g.appendChild(t);
+    });
+    screenEl.appendChild(g);
+    const sp=el("div"); sp.style.flex="1"; screenEl.appendChild(sp);
+    screenEl.appendChild(cartBar());
+  }
+
+  if(s==="SETOPT"){
+    screenEl.appendChild(header("세트 구성을 선택하세요",b("이전","minor",()=>go("MENU"))));
+    const body=el("div","body");
+    const [bn,bp]=K.setBurger||["",0];
+    body.appendChild(el("div","sub",`${bn} 세트 · 기본 ${won(bp+SET_BASE)}`));
+    body.appendChild(el("div","sect","사이드 선택"));
+    const g1=el("div","opts");
+    SET_SIDES.forEach(([n,ex],i)=>{
+      const bt=mkBtn(b(`${n}\n${ex?"+"+won(ex):"(기본)"}`,"",()=>{K.setSide=i;render();},n));
+      bt.style.whiteSpace="pre-line"; bt.setAttribute("aria-pressed",K.setSide===i?"true":"false"); g1.appendChild(bt);
+    });
+    body.appendChild(g1);
+    body.appendChild(el("div","sect","음료 선택"));
+    const g2=el("div","opts");
+    SET_DRINKS.forEach(([n,ex],i)=>{
+      const bt=mkBtn(b(`${n}\n${ex?"+"+won(ex):"(기본)"}`,"",()=>{K.setDrink=i;render();},n));
+      bt.style.whiteSpace="pre-line"; bt.setAttribute("aria-pressed",K.setDrink===i?"true":"false"); g2.appendChild(bt);
+    });
+    body.appendChild(g2);
+    screenEl.appendChild(body);
+    const total=bp+SET_BASE+SET_SIDES[K.setSide][1]+SET_DRINKS[K.setDrink][1];
+    const bar=el("div","cartbar");
+    bar.appendChild(el("span","sum",`세트 합계  ${won(total)}`));
+    bar.appendChild(mkBtn(b("담기","primary",()=>{
+      addItem(`${bn} 세트`,total,`${SET_SIDES[K.setSide][0]} / ${SET_DRINKS[K.setDrink][0]}`);
+      go("MENU"); toast(`${bn} 세트 담았습니다`);
+    })));
+    screenEl.appendChild(bar);
+  }
+
+  if(s==="CART"){
+    screenEl.appendChild(header("장바구니",b("더 담기","minor",()=>go("MENU"))));
+    const body=el("div","body");
+    if(!K.cart.length) body.appendChild(el("div","sub","담긴 메뉴가 없습니다."));
+    K.cart.forEach((it,idx)=>{
+      const r=el("div","row");
+      const nm=el("div","nm"); nm.appendChild(el("div",null,it.name));
+      if(it.detail) nm.appendChild(el("div","sub",it.detail));
+      r.appendChild(nm);
+      r.appendChild(el("span",null,won(it.price*it.qty)));
+      r.appendChild(mkBtn(b("－","qtybtn",()=>{it.qty--;if(it.qty<=0)K.cart.splice(idx,1);render();},"수량 빼기")));
+      r.appendChild(el("span",null,String(it.qty)));
+      r.appendChild(mkBtn(b("＋","qtybtn",()=>{it.qty++;render();},"수량 더하기")));
+      r.appendChild(mkBtn(b("삭제","minor",()=>{K.cart.splice(idx,1);render();})));
+      body.appendChild(r);
+    });
+    screenEl.appendChild(body);
+    screenEl.appendChild(cartBar());
+  }
+
+  if(s==="PAY"){
+    screenEl.appendChild(header("결제",b("이전","minor",()=>go("CART"))));
+    const body=el("div","body");
+    if(K.payStep===0){
+      body.appendChild(el("div","title","포인트를 적립하시겠어요?"));
+      body.appendChild(el("div","sub","휴대폰 번호로 적립 · 1,000원당 10점"));
+      body.appendChild(mkBtn(b("적립하기","primary big",()=>{K.payStep=1;K.phone="";render();})));
+      body.appendChild(mkBtn(b("적립 안 함","",()=>{K.payStep=2;render();})));
+    } else if(K.payStep===1){
+      body.appendChild(el("div","title","휴대폰 번호를 입력하세요"));
+      body.appendChild(el("div","phonebox",K.phone));
+      const pad=el("div","pad");
+      ["1","2","3","4","5","6","7","8","9","지우기","0","확인"].forEach(kk=>{
+        pad.appendChild(mkBtn(b(kk,kk==="확인"?"primary":"",()=>{
+          if(kk==="지우기") K.phone=K.phone.slice(0,-1);
+          else if(kk==="확인"){
+            if(K.phone.length<10){ popup({title:"안내",body:"번호를 정확히 입력해주세요.",buttons:[["확인","",closePopup]]}); return; }
+            toast("적립되었습니다"); K.payStep=2; render(); return;
+          } else if(K.phone.length<11) K.phone+=kk;
+          render();
+        })));
+      });
+      body.appendChild(pad);
+      body.appendChild(mkBtn(b("적립 안 함","minor",()=>{K.payStep=2;render();})));
+    } else {
+      body.appendChild(el("div","title","결제 수단을 선택하세요"));
+      body.appendChild(el("div","sub",`결제 금액  ${won(cartTotal())}`));
+      [["신용 / 체크카드","card"],["간편결제 (QR)","qr"],["모바일 상품권","gift"]].forEach(([lb,kind])=>
+        body.appendChild(mkBtn(b(lb,"big",()=>{K.payKind=kind;
+          if(kind!=="card"){ go("CARD"); return; }
+          const pick=m=>()=>{ K.inst=m; K.popup=null; go("CARD"); };   // 실제 카드 키오스크처럼 할부부터 고른다
+          popup({title:"할부 선택",body:`결제 금액  ${won(cartTotal())}\n할부 개월을 선택하세요`,
+            buttons:[["일시불","primary",pick("일시불")],["3개월","",pick("3개월")],["6개월","",pick("6개월")],
+                     ["개월 수 직접 입력","",()=>{ K.popup=null; K.instNum=""; go("INST"); }]],
+            tinyClose:"취소"});
+        }))));
+      body.appendChild(mkBtn(b("현금 (직원 호출)","",()=>popup({title:"직원 호출",body:"직원을 호출했습니다.\n확인을 누르면 주문표가 나옵니다.",buttons:[["확인","",()=>{K.payKind="cash";K.popup=null;go("DONE");}]]}))));
+    }
+    screenEl.appendChild(body);
+  }
+
+  if(s==="INST"){                      // 실제 카드 단말처럼 할부 개월을 숫자로 입력
+    screenEl.appendChild(header("할부 개월 수를 입력하세요",b("이전","minor",()=>{K.payStep=2;go("PAY");})));
+    const body=el("div","body");
+    body.appendChild(el("div","sub","2개월부터 12개월까지 됩니다"));
+    body.appendChild(el("div","phonebox",K.instNum? K.instNum+"개월" : ""));
+    const pad=el("div","pad");
+    ["1","2","3","4","5","6","7","8","9","지우기","0","확인"].forEach(kk=>{
+      pad.appendChild(mkBtn(b(kk,kk==="확인"?"primary":"",()=>{
+        if(kk==="지우기") K.instNum=(K.instNum||"").slice(0,-1);
+        else if(kk==="확인"){
+          const n=parseInt(K.instNum||"0",10);
+          if(!(n>=2&&n<=12)){ popup({title:"안내",body:"2개월부터 12개월까지 입력하실 수 있습니다.",buttons:[["확인","",closePopup]]}); return; }
+          K.inst=n+"개월"; go("CARD"); return;
+        } else if((K.instNum||"").length<2) K.instNum=(K.instNum||"")+kk;
+        render();
+      })));
+    });
+    body.appendChild(pad);
+    body.appendChild(mkBtn(b("일시불로 할게요","minor",()=>{K.inst="일시불";go("CARD");})));
+    screenEl.appendChild(body);
+  }
+
+  if(s==="CARD"){
+    const K2={card:["카드를 아래 투입구에\n끝까지 넣어주세요","카드 투입 (모의)","카드를 빼지 마세요"],
+              qr:["휴대폰으로 아래 QR 코드를\n찍어서 결제해주세요","QR 결제 완료 (모의)","휴대폰 화면을 확인하세요"],
+              gift:["휴대폰의 상품권 바코드를\n아래 스캐너에 대주세요","바코드 인식 (모의)","바코드를 그대로 두세요"]}[K.payKind];
+    const body=el("div","body");
+    const t=el("div","title",K2[0]); t.style.whiteSpace="pre-line"; body.appendChild(t);
+    body.appendChild(el("div","slot",K.payKind==="qr"?"▦ QR 코드 (모의)":K.payKind==="gift"?"||||| 바코드 스캐너 (모의)":"▭ 카드 투입구 (모의)"));
+    body.appendChild(el("div","title",`결제 금액  ${won(cartTotal())}`));
+    const ins=mkBtn(b(K2[1],"big primary",()=>{
+      ins.disabled=true; t.textContent=`승인 요청 중입니다...\n${K2[2]}`;
+      setTimeout(()=>{ if(K.screen==="CARD") go("DONE"); },2000);
+    }));
+    body.appendChild(ins);
+    body.appendChild(mkBtn(b("결제 취소","minor",()=>{K.payStep=2;go("PAY");})));
+    screenEl.appendChild(body);
+  }
+
+  if(s==="DONE"){
+    const body=el("div","body");
+    const cash=K.payKind==="cash";
+    body.appendChild(el("div","title",cash?"주문이 접수되었습니다":"주문이 완료되었습니다"));
+    body.appendChild(el("div","ordernum",K.orderNo));
+    body.appendChild(el("div","sub",cash?"주문표를 가지고 카운터에서\n현금으로 결제해주세요":"주문번호를 확인하시고\n픽업대에서 기다려주세요"));
+    const sp=el("div"); sp.style.flex="1"; body.appendChild(sp);
+    body.appendChild(el("div","sub","잠시 후 처음 화면으로 돌아갑니다"));
+    screenEl.appendChild(body);
+  }
+
+  if(K.popup){
+    const p=K.popup, ov=el("div","pop"), card=el("div","popcard");
+    card.appendChild(el("h3",null,p.title));
+    if(p.body){ const bd=el("p",p.bigBody?"bigbody":null,p.body); card.appendChild(bd); }
+    const bts=el("div","popbtns");
+    (p.buttons||[]).forEach(([lb,cls,fn])=>bts.appendChild(mkBtn(b(lb,cls,fn))));
+    card.appendChild(bts);
+    if(p.tinyClose){ const tr=el("div","poptiny"); tr.appendChild(mkBtn(b(p.tinyClose,"tiny",closePopup))); card.appendChild(tr); }
+    ov.appendChild(card); popmount.appendChild(ov);
+  }
+  updateTimerBar();
+}
+
+/* ─────────────── 유휴 타이머 ─────────────── */
+const TIMER_OFF=new Set(["START","CARD","DONE"]);
+function updateTimerBar(){
+  $("#kiosk").classList.toggle("assisted",helpOn());
+  const off=TIMER_OFF.has(K.screen);
+  if(off){ timerbar.textContent=""; timerbar.className="timerbar"; return; }
+  if(A.active){ timerbar.textContent="도움 받는 중 — 초기화하지 않습니다"; timerbar.className="timerbar hold"; return; }
+  const m=String(Math.floor(Math.max(K.remaining,0)/60)).padStart(2,"0");
+  const s=String(Math.max(K.remaining,0)%60).padStart(2,"0");
+  const warn=K.remaining<=10;
+  timerbar.textContent=(warn?"곧 처음 화면으로 돌아갑니다   ":"")+`남은 시간 ${m}:${s}`;
+  timerbar.className="timerbar"+(warn?" warn":"");
+}
+setInterval(()=>{
+  if(TIMER_OFF.has(K.screen)) { updateTimerBar(); return; }
+  if(A.active){ touch(); updateTimerBar(); return; }   // 어시스트가 지켜주는 동안은 초기화 없음
+  K.remaining--;
+  if(K.remaining<=0){ log("kiosk","30초 동안 입력이 없어 처음 화면으로 돌아갔습니다","act"); resetAll(); }
+  updateTimerBar();
+},1000);
+$("#kiosk").addEventListener("pointerdown",touch);
+
+/* ─────────────── 어시스트 ─────────────── */
+const A={active:true,persona:"키순이",gender:"female",steps:[],doneSteps:[],busy:false,muted:false,listening:false,lastSay:"",retry:0,
+         waiting:null,sig:"",autoClick:false,batchHint:0};
+const logbox=$("#log"), planbox=$("#plan");
+
+function log(who,txt,cls){
+  const l=el("div","line "+(cls||""));
+  l.appendChild(el("span","who",who));
+  l.appendChild(el("span","txt",txt));
+  logbox.appendChild(l); logbox.scrollTop=logbox.scrollHeight;
+}
+function setStatus(t){
+  $("#astatus").textContent=t; $("#dot").className="dot"+(A.active?" live":"");
+  $("#kiosk").classList.toggle("assisted",helpOn());   // 말로 주문하기·대신 눌러주세요 를 켰을 때만 큰 글씨
+}
+function guide(say,step){
+  if(say) $("#guidesay").textContent=say;
+  $("#guidestep").textContent=step||"";
+  $("#guidewho").textContent=A.persona+"  ·  "+AI.name;
+  $("#guide").classList.toggle("on",!!(A.active&&$("#guidesay").textContent));
+  if(!A.active) $("#guidesay").textContent="";
+}
+let speaking=false;
+/* ── 목소리 고르기: 키돌이=남성, 키순이=여성 ── */
+let V_MALE=null, V_FEMALE=null, voiceNoted=false, TRUE_MALE=false;
+const MALE_RE=/injoon|in-joon|인준|minsik|gook|male|남성|남자/i;
+const FEMALE_RE=/heami|해미|sun-?hi|선희|nari|female|여성|여자|google/i;
+function pickVoices(){
+  if(!window.speechSynthesis) return;
+  const ko=(speechSynthesis.getVoices()||[]).filter(v=>/^ko/i.test(v.lang));
+  if(!ko.length) return;
+  V_MALE   = ko.find(v=>MALE_RE.test(v.name)) || null;
+  V_FEMALE = ko.find(v=>FEMALE_RE.test(v.name)&&v!==V_MALE) || null;
+  if(!V_FEMALE) V_FEMALE = ko.find(v=>v!==V_MALE) || ko[0];
+  if(!V_MALE)   V_MALE   = ko.find(v=>v!==V_FEMALE) || null;
+  TRUE_MALE = !!(V_MALE && MALE_RE.test(V_MALE.name));   // 진짜 남성 음성인가
+  if(!TRUE_MALE){ V_MALE=null; if(A.gender==="male"){ A.gender="female"; A.persona="키순이"; $("#persona").textContent="키순이"; } }
+  if(!voiceNoted){
+    voiceNoted=true;
+    log("안내",`이 브라우저가 쓸 수 있는 한국어 목소리 ${ko.length}개: ${ko.map(v=>v.name).join(" / ")}`);
+    if(TRUE_MALE) log("안내",`키돌이: ${V_MALE.name} · 키순이: ${V_FEMALE.name}`);
+    else log("안내",`한국어 남성 목소리가 없어 키순이(여성) 목소리만 씁니다 — 톤을 억지로 바꾸지 않습니다.`);
+  }
+}
+if(window.speechSynthesis){
+  pickVoices();
+  speechSynthesis.onvoiceschanged=pickVoices;
+  setTimeout(pickVoices,600); setTimeout(pickVoices,2000);
+}
+function ttsText(t){                 /* 화면에 보이는 글 → 읽기 좋은 말 */
+  return (t||"")
+    .replace(/['‘’"“”]/g,"")
+    .replace(/[—·]/g,", ")
+    .replace(/\\(([^)]*)\\)/g,"$1")
+    .replace(/[\u{1F300}-\u{1FAFF}←-⇿☀-➿]/gu,"")
+    .replace(/\\s{2,}/g," ")
+    .trim();
+}
+function speak(text){
+  A.lastSay=text; log(A.persona,text); guide(text,planLabel());
+  if(A.muted||!window.speechSynthesis) return;
+  try{
+    speaking=true; micPause();
+    if(!V_MALE&&!V_FEMALE) pickVoices();
+    const male=A.gender==="male";
+    const u=new SpeechSynthesisUtterance(ttsText(text));
+    u.lang="ko-KR";
+    const v = (male && V_MALE) ? V_MALE : (V_FEMALE||V_MALE);
+    if(v) u.voice=v;
+    u.pitch = 1;      // 변조하지 않는다 — 있는 목소리를 그대로 쓴다
+    u.rate  = 0.92;   /* 어르신이 따라올 수 있게 조금 느리게 */
+    u.onend=()=>{speaking=false;micResume();}; u.onerror=()=>{speaking=false;micResume();};
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  }catch(e){ speaking=false; micResume(); }
+}
+function planLabel(){ return A.steps.length? "남은 순서: "+A.steps.join(" → ") : ""; }
+function renderPlan(){
+  planbox.innerHTML="";
+  A.doneSteps.forEach(s=>planbox.appendChild(el("span","p done",s)));
+  A.steps.forEach((s,i)=>planbox.appendChild(el("span","p"+(i===0?" now":""),s)));
+}
+
+/* 화면 읽기 */
+const norm=s=>(s||"").replace(/\s+/g,"");
+function readScreen(){
+  const root=K.popup? popmount : screenEl;
+  return [...root.querySelectorAll("button")].filter(b=>!b.disabled&&b.offsetParent!==null)
+    .map(b=>({el:b,text:b.dataset.name||b.textContent.trim()}));
+}
+function find(els,pat){
+  const re=new RegExp(pat);
+  return els.find(e=>re.test(norm(e.text)))||null;
+}
+function bestItem(els,n){
+  let best=null,score=0;
+  els.forEach(e=>{
+    const t=norm(e.text).replace(/[\d,]+원$/,"");
+    if(!t) return;
+    let sc=0;
+    if(t===n) sc=1;
+    else if(t.includes(n)&&n.length>=2) sc=0.9*n.length/t.length+0.1;
+    else if(n.includes(t)&&t.length>=2) sc=0.8*t.length/n.length;
+    if(sc>score){score=sc;best=e;}
+  });
+  return score>=0.45?best:null;
+}
+
+/* ── AI 판단 (Gemini) — 지금 화면의 버튼 + 손님 말 → 누를 순서와 대답. 키가 없거나 실패하면 규칙으로 ── */
+/* 키를 숨기는 중계 서버(Cloudflare Worker) 주소 — 키는 서버에만 있고 브라우저에는 오지 않습니다.
+   ?key= 로 직접 키를 넣으면 그 키가 우선합니다. */
+const AI_PROXY_DEFAULT="https://talk-to-kiosk.mujusee1.workers.dev";
+const AI={key:null, proxy:null, model:null, ready:false, alias:{}, asked:new Set(), fails:0, name:"규칙"};
+(function aiInit(){
+  try{
+    const q=new URLSearchParams(location.search).get("key");
+    if(q){ localStorage.setItem("kisooni_key",q); history.replaceState(null,"",location.pathname+(location.search.includes("dev")?"?dev=1":"")); }
+    AI.key = (window.KISOONI_KEY||"").trim() || localStorage.getItem("kisooni_key") || null;
+  }catch(_){ AI.key=(window.KISOONI_KEY||"").trim()||null; }
+  AI.proxy = AI.key ? null : ((window.KISOONI_PROXY||"").trim() || AI_PROXY_DEFAULT || null);
+  if(AI.key||AI.proxy){ AI.ready=true; AI.name="AI 판단"; }
+})();
+const AI_PREF=["gemini-2.5-flash","gemini-3-flash","gemini-2.0-flash","gemini-2.5-flash-lite","gemini-3.1-flash-lite"];
+async function aiModel(){
+  if(AI.model) return AI.model;
+  try{
+    const r=await fetch(AI.key?`https://generativelanguage.googleapis.com/v1beta/models?key=${AI.key}&pageSize=100`:`${AI.proxy}/models`);
+    const j=await r.json();
+    const names=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent")).map(m=>m.name.replace(/^models\//,""));
+    AI.model = AI_PREF.find(p=>names.includes(p)) || names.find(n=>/flash/.test(n)&&!/image|tts|live|audio|8b/.test(n)) || null;
+  }catch(e){ AI.model=null; }
+  if(!AI.model) AI.model="gemini-2.5-flash";
+  AI.name="AI 판단 · "+AI.model;
+  return AI.model;
+}
+async function aiJSON(system, user, ms=9000){
+  const model=await aiModel();
+  const ctrl=new AbortController(); const tm=setTimeout(()=>ctrl.abort(), ms);
+  try{
+    const r=await fetch(AI.key?`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${AI.key}`:`${AI.proxy}/generate/${model}`,{
+      method:"POST", headers:{"Content-Type":"application/json"}, signal:ctrl.signal,
+      body:JSON.stringify({system_instruction:{parts:[{text:system}]},
+        contents:[{role:"user",parts:[{text:user}]}],
+        // 2.5 모델은 기본으로 '생각'에 토큰을 써서, 짧은 한도에선 답이 비어 버린다 → 생각 끔 + 한도 넉넉히
+        generationConfig:Object.assign({temperature:0.2, maxOutputTokens:1024, responseMimeType:"application/json"},
+          /^gemini-2\.5/.test(model)? {thinkingConfig:{thinkingBudget:0}} : {})})});
+    if(!r.ok){
+      if(r.status===404||r.status===400){               // 이 모델을 못 쓰면 다음 후보로
+        const i=AI_PREF.indexOf(model); AI.model=AI_PREF[(i+1)%AI_PREF.length]; AI.name="AI 판단 · "+AI.model;
+      }
+      throw new Error("HTTP "+r.status);
+    }
+    const j=await r.json();
+    const txt=((((j.candidates||[])[0]||{}).content||{}).parts||[]).map(p=>p.text||"").join("");
+    const m=txt.match(/\{[\s\S]*\}/); if(!m) throw new Error("no json");
+    AI.fails=0; return JSON.parse(m[0]);
+  }catch(e){
+    AI.fails++; log("AI","판단 실패 — 이번엔 규칙으로 대신합니다 ("+(e.message||e)+")");
+    if(AI.fails>=3 && AI.ready){                        // 잠깐 쉬었다가 다시 AI 로 (영구히 끄지 않는다)
+      AI.ready=false; AI.name="규칙"; guide();
+      setTimeout(()=>{ AI.fails=0; AI.ready=true; AI.name="AI 판단"+(AI.model?" · "+AI.model:""); guide(); }, 30000);
+    }
+    return null;
+  }finally{ clearTimeout(tm); }
+}
+/* 돈이 나가거나 되돌리기 어려운 버튼 — "대신 누르기" 모드에서도 "네" 를 들은 뒤에만 누른다 (데스크톱판 DANGEROUS 와 동일) */
+const DANGEROUS=/신용\s*\/\s*체크카드|체크카드|간편결제|모바일 ?상품권|현금|직원 ?호출|돌아가기|삭제/;
+const FLOW_BTNS=["매장에서 먹기","포장하기","포장","매장","계산","결제","세트로","단품으로","그대로 담아줘","담기","더 담기","결제하기","괜찮아요","추가하기","적립하기","적립 안 함","신용 / 체크카드","일시불","3개월","6개월","개월 수 직접 입력","간편결제","모바일 상품권","현금","카드 투입","확인","지우기","취소","처음으로","이전","광고 닫기","닫기","장바구니"];
+function menuText(){
+  return Object.keys(MENU).map(c=>c+": "+MENU[c].map(([n,p])=>`${n} ${p}원`).join(", ")).join("\n")
+       +"\n세트 사이드: "+SET_SIDES.map(([n,x])=>n+(x?` +${x}원`:"")).join(", ")
+       +"\n세트 음료: "+SET_DRINKS.map(([n,x])=>n+(x?` +${x}원`:"")).join(", ")+`\n세트는 버거 값에 ${SET_BASE}원 추가`;
+}
+const AI_SYSTEM=`어르신이 패스트푸드 키오스크 앞에서 한 말을 듣고, 주문에 필요한 단계로 쪼갭니다.
+
+각 단계는 키오스크에서 한 번에 고르는 것 하나입니다. 순서는 키오스크가 묻는 순서를 따릅니다:
+먹는 곳(매장/포장) → 메뉴 → 세트/단품 → 세트 구성(사이드·음료) → 추가 메뉴 → 계산
+
+규칙:
+- 어르신이 말한 것만 단계로 만듭니다. 말하지 않은 것은 넣지 마세요.
+- 한 단계는 짧은 한마디로 씁니다. 키오스크 버튼에서 찾을 수 있는 말이어야 합니다.
+- 먹는 곳은 버튼 이름 그대로 씁니다: 가져가면 "포장하기", 여기서 드시면 "매장에서 먹기". ("포장"/"매장" 처럼 줄이지 마세요.)
+- "불고기버거 세트로" → "불고기버거" 다음 "세트로"
+- 세트를 고르면 사이드와 음료를 정하는 화면이 나옵니다. 바꿔 달라는 말이 없으면 "세트로" 다음에 "그대로 담아줘"를 넣습니다.
+- 메뉴 이름은 어르신이 말한 그대로 씁니다. 수량("두 개")은 단계 이름에 넣지 말고 메뉴 이름만 씁니다.
+- 세트/단품, 포인트 적립, 결제 수단처럼 어르신이 말하지 않은 선택은 넣지 않습니다. 키오스크가 물으면 어르신이 직접 정합니다.
+- 어르신이 말하지 않은 단계(다른 메뉴, "그대로 담아줘" 등)를 상상해서 넣으면 안 됩니다.
+- 계산·결제까지 말했으면 마지막에 "계산"을 넣습니다. 말하지 않았으면 넣지 마세요.
+
+예:
+"불고기버거 세트 하나 포장해 줘" → {"steps": ["포장하기", "불고기버거", "세트로", "그대로 담아줘"]}
+"치즈버거 세트 먹고 갈게 계산까지 해줘" → {"steps": ["매장에서 먹기", "치즈버거", "세트로", "그대로 담아줘", "계산"]}
+"여기서 먹을 건데 치즈버거 단품이랑 콜라 하나" → {"steps": ["매장에서 먹기", "치즈버거", "단품으로", "콜라", "계산"]}
+"불고기버거 포장 계산" → {"steps": ["포장하기", "불고기버거", "계산"]}
+"새우버거 줘" → {"steps": ["새우버거"]}
+
+출력은 아래 JSON 하나만. 다른 글자 금지.
+{"steps": ["단계", "단계"]}
+
+추가 규칙 (웹 체험판):
+- [메뉴 목록]과 [지금 보이는 버튼]에 있는 이름을 그대로 씁니다.
+- 질문이거나(뭐가 싸요, 매운 거 있어요, 얼마예요) 주문이 아니면 steps 는 빈 배열로 두고, say 에 [메뉴 목록]을 근거로 두 문장 이내로 답합니다.
+- 주문이면 say 는 짧은 한마디("네, 불고기버거 포장으로 할게요.")로 씁니다. 짧고 쉬운 존댓말.
+출력은 JSON 하나만: {"steps": ["…"], "say": "…"}`;
+
+/* 먹는 곳은 어떻게 말하든(AI 가 어떻게 줄여 쓰든) 버튼 이름으로 맞춰준다 — 데스크톱판과 같은 관용도 */
+const DINE_ALIAS=[[/포장|테이크|가져|싸가|싸주|싸줘/,"포장하기"],
+                  [/매장|여기서|여기|먹고가|먹고갈|먹을|먹고|드시고|식사|점내|홀에서/,"매장에서 먹기"]];
+const MENU_WORD=/버거|치킨|너겟|텐더|핫윙|감자|치즈스틱|어니언|코울슬로|콘샐러드|치즈볼|해쉬브라운|콜라|사이다|주스|커피|라떼|아메리카노|생수|쉐이크|선데|파이|쿠키|케이크|소프트콘|세트/;
+function dineAlias(st){ const n=norm(st);
+  if(MENU_WORD.test(n)) return null;                  // 메뉴 얘기는 먹는 곳으로 바꾸지 않는다
+  for(const [re,name] of DINE_ALIAS) if(re.test(n)) return name;
+  return null; }
+function validSteps(steps){
+  const known=new Set([...ALL_ITEMS.map(x=>x.name), ...FLOW_BTNS, ...SET_SIDES.map(x=>x[0]), ...SET_DRINKS.map(x=>x[0])]);
+  const vis=readScreen().map(e=>btnName(e.el));
+  const out=[];
+  for(const st of (steps||[]).map(x=>String(x).trim()).filter(Boolean)){
+    if(known.has(st)||vis.includes(st)){ out.push(st); continue; }
+    const hit=[...known].find(k=>norm(k).replace(/\(.\)$/,"")===norm(st)) || vis.find(v=>norm(v)===norm(st)) || dineAlias(st);
+    // 목록에 없어도 버리지 않는다 — 그 화면에 가서 AI 에게 "이 말이 어느 버튼이냐" 물어본다 (데스크톱판과 같은 관용도)
+    if(hit) out.push(hit); else { out.push(st); log("AI","목록에 없는 말 — 화면에서 다시 물어봅니다: "+st); }
+  }
+  // 데스크톱판 sanitize_steps 와 같은 후처리: 세트가 아닌데 붙은 '그대로 담아줘' 는 뺀다
+  const out2=[]; for(const st of out){ if(/^그대로/.test(st) && !out2.some(x=>/세트/.test(x))){ log("AI","세트 주문이 아니어서 '그대로 담아줘' 를 뺐습니다"); continue; } out2.push(st); }
+  return out2.slice(0,12);
+}
+async function aiUnderstand(text){
+  const vis=readScreen().map(e=>btnName(e.el)).filter(Boolean);
+  const user=`[메뉴 목록]\n${menuText()}\n\n[지금 화면] ${K.screen}${K.popup?" (팝업: "+K.popup.title+")":""}\n[지금 보이는 버튼] ${vis.join(", ")}\n[장바구니] ${cartCount()}개 ${won(cartTotal())}\n[손님 말] "${text}"`;
+  const d=await aiJSON(AI_SYSTEM,user);
+  if(!d) return null;
+  const steps=validSteps(d.steps);
+  log("AI",`판단 → ${JSON.stringify({steps, say:d.say||""})}`);
+  return {steps, say:(d.say||"").trim()};
+}
+async function aiPickButton(step){
+  const vis=readScreen().map(e=>btnName(e.el)).filter(Boolean);
+  const d=await aiJSON(AI_SYSTEM+`\n\n지금은 한 단계만 처리합니다: 손님이 원하는 단계에 맞는 버튼 하나를 [지금 보이는 버튼]에서 고르세요. 없으면 null.\n출력: {"target": "버튼 이름 또는 null"}`,
+    `[메뉴 목록]\n${menuText()}\n\n[지금 화면] ${K.screen}\n[지금 보이는 버튼] ${vis.join(", ")}\n[손님이 원하는 단계] "${step}"`, 7000);
+  const t=d&&d.target? String(d.target).trim():"";
+  const hit=vis.find(v=>v===t)||vis.find(v=>norm(v)===norm(t));
+  log("AI",`'${step}' → ${hit||"없음"}`);
+  return hit||null;
+}
+
+/* 한마디 → 단계 쪼개기 (규칙, LLM 없음) */
+const ALL_ITEMS=[].concat(...Object.keys(MENU).map(c=>MENU[c].map(([n])=>({name:n,cat:c}))));
+function splitSteps(utt){
+  const n=norm(utt), steps=[];
+  if(/포장|가져|싸주|싸줘|테이크/.test(n)) steps.push("포장하기");
+  else if(/매장|여기서|먹고가|먹고|먹을|드시고|식사|점내|홀에서/.test(n)) steps.push("매장에서 먹기");
+  const hits=[];
+  ALL_ITEMS.forEach(it=>{
+    const key=norm(it.name).replace(/\(.\)$/,"");
+    const i=n.indexOf(key);
+    if(i>=0) hits.push({i,len:key.length,...it});
+  });
+  hits.sort((a,b)=>a.i-b.i||b.len-a.len);
+  const used=[];
+  hits.forEach(h=>{ if(used.some(u=>h.i<u.end&&h.i+h.len>u.i)) return; used.push({i:h.i,end:h.i+h.len});
+    steps.push(h.name);
+    // 세트/단품, 세트 구성은 어르신이 말했을 때만. 말이 없으면 화면에서 직접 여쭙는다.
+    if(h.cat==="버거"&&/세트/.test(n)) steps.push("세트로");
+    else if(h.cat==="버거"&&/단품|버거만|그냥/.test(n)) steps.push("단품으로");
+  });
+  if(/계산|결제|끝|다됐|주문할래|주문해/.test(n)) steps.push("계산");
+  // 적립은 어르신이 말한 대로만 (말이 없으면 화면에서 직접 여쭙는다)
+  if(/적립안|적립하지|포인트안|적립은안/.test(n)) steps.push("적립 안 함");
+  else if(/적립|포인트/.test(n)) steps.push("적립하기");
+  return steps;
+}
+
+/* 한 단계 → 이 화면에서 누를 버튼 */
+const OPTIONAL=new Set(["괜찮아요","적립 안 함","담기"]);
+const RULES=[
+  [/포장|가져|싸/,"포장하기","가져가시는 걸로 할게요."],
+  [/매장|여기서|먹고|먹을|먹고가|드시고|식사|점내|홀에서/,"매장에서먹기","여기서 드시는 걸로 할게요."],
+  [/^세트/,"^세트로","세트로 할게요."],
+  [/단품|버거만|그냥/,"^단품으로","햄버거만 담을게요."],
+  [/담기|그대로|기본|담아/,"^담기$","그대로 담을게요."],
+  [/괜찮|필요없|안해|됐어|아니/,"괜찮아요","안 하고 넘어갈게요."],
+  [/적립안|적립하지|안할|넘어/,"적립안함","포인트는 안 쌓고 넘어갈게요."],
+  [/적립|포인트/,"^적립하기","포인트 쌓기로 갈게요."],
+  [/계산|결제|끝|다됐/,"결제하기","계산하러 갈게요."],
+  [/^확인$/,"^확인$","확인 누를게요."],
+  [/카드/,"신용","카드로 결제할게요."],
+  [/일시불|한번에|한꺼번에/,"^일시불","일시불로 할게요."],
+  [/3개월|삼개월|석달/,"^3개월$","3개월 할부로 할게요."],
+  [/6개월|육개월|여섯달/,"^6개월$","6개월 할부로 할게요."],
+  [/직접입력|개월수|몇개월|나눠|할부로/,"개월수직접입력","개월 수를 직접 넣는 쪽으로 갈게요."],
+  [/큐알|qr|간편|폰으로/,"간편결제","간편결제로 할게요."],
+  [/상품권|기프티콘|쿠폰/,"모바일상품권","모바일 상품권으로 할게요."],
+  [/넣었|꽂았|투입/,"카드투입","네, 결제 확인할게요."],
+  [/장바구니|담은거|얼마/,"^장바구니$","담은 거 보여드릴게요."],
+  [/더담|다른거|메뉴/,"더담기","메뉴 화면으로 갈게요."],
+  [/처음|취소하고|다시/,"처음으로","처음으로 돌아갈게요."],
+  [/이전|뒤로/,"^이전$","이전 화면으로 갈게요."],
+  [/닫아|광고/,"닫기","닫을게요."]
+];
+function planStep(step){
+  const els=readScreen(), n=norm(step);
+  if(AI.alias[step]){                                   // AI 가 이 화면에서 골라준 버튼
+    const e=els.find(x=>btnName(x.el)===AI.alias[step]);
+    if(e) return {node:e.el,say:`'${AI.alias[step]}' 누를게요.`};
+  }
+  // 광고 팝업은 무조건 먼저 닫는다
+  if(K.popup&&/신메뉴/.test(K.popup.title)){
+    const e=find(els,"광고닫기|^닫기");
+    if(e) return {node:e.el,say:"광고를 닫습니다.",keep:true};
+  }
+  if(K.screen==="START"){
+    const e=find(els,"화면을터치");
+    if(e) return {node:e.el,say:"주문을 시작할게요.",keep:true};
+  }
+  // 세트 팝업에서 '계산' 같은 말 → 취소 금지, 세트/단품부터
+  if(K.popup&&/세트로 드시겠어요/.test(K.popup.title)&&!/세트|단품|버거만|그냥/.test(n)){
+    if(A.setChoice){                     // 같은 주문의 두 번째 것부터는 앞에서 고른 대로
+      const e=find(els,A.setChoice==="세트로"?"^세트로":"^단품으로");
+      if(e) return {node:e.el,say:`이것도 ${A.setChoice==="세트로"?"세트로":"햄버거만"} 할게요.`,keep:true};
+    }
+    return {say:"세트로 하실래요, 햄버거만 하실래요?",ask:true,keep:true};
+  }
+  for(const [up,ep,say] of RULES){
+    if(up.test(n)){ const e=find(els,ep); if(e) return {node:e.el,say}; }
+  }
+  const item=bestItem(els,n);
+  if(item) return {node:item.el,say:`${item.el.dataset.name.replace(/\s*[\d,]+원$/,"")} 골랐어요.`};
+  // 메뉴 화면인데 다른 카테고리에 있는 메뉴
+  if(K.screen==="MENU"&&!K.popup){
+    const it=ALL_ITEMS.find(x=>norm(x.name).includes(n)||n.includes(norm(x.name).replace(/\(.\)$/,"")));
+    if(it&&it.cat!==K.cat){
+      const tab=find(els,"^"+it.cat+"$");
+      if(tab) return {node:tab.el,say:`${it.cat} 메뉴를 보여드릴게요.`,keep:true};
+    }
+  }
+  // 먹는 곳 화면인데 먹는 곳 단계가 없다 — "이 화면엔 없네요" 대신 여쭙고 남은 순서는 그대로 둔다
+  if(K.screen==="DINE"&&!K.popup)
+    return {say:"여기서 드시고 가실래요, 포장하실래요? 편한 쪽을 눌러주세요.",ask:true,keep:true};
+  // 화면을 넘겨야 다음이 나오는 경우
+  const gogo=find(els,"^담기$|^확인$|^다음$");
+  if(gogo&&!/계산|결제/.test(n)) return {node:gogo.el,say:`${gogo.text} 먼저 누를게요.`,keep:true};
+  return null;
+}
+
+function clearPoint(){ document.querySelectorAll(".point").forEach(n=>n.classList.remove("point","below")); }
+function btnName(node){
+  let t=(node.dataset.name||node.textContent||"").replace(/\s+/g," ").trim();
+  t=t.replace(/\s*[\d,]+원.*$/,"");          // 가격 떼기
+  t=t.replace(/\s*\([^)]*$/,"");             // "세트로 (+" 처럼 잘린 괄호 꼬리
+  t=t.replace(/\s*\([^)]*\)\s*$/,"");       // "취소 (다른 메뉴 고르기)" → "취소"
+  return t.replace(/[\s(+\-·]+$/,"").trim();
+}
+/* 대신 누르지 않는다 — 누를 곳만 표시하고 기다린다 */
+function pointAt(node){
+  clearPoint();
+  if(!node) return;
+  node.classList.add("point");
+  // 위에 화살표 놓을 자리가 없으면 아래에서 위로 (데스크톱판 규칙과 동일)
+  try{ const r=node.getBoundingClientRect(); if(r.top<70) node.classList.add("below"); }catch(e){}
+  log("어시스트","여기를 눌러주세요 — "+btnName(node),"act");
+}
+function sig(){ return K.screen+"|"+(K.popup?K.popup.title:"")+"|"+cartCount()+"|"+K.payStep+"|"+K.cat+"|"+(K.phone||"").length
+  +"|"+(document.querySelector("#screen button.primary:disabled")?"busy":""); }
+
+/* 실행 루프 */
+function tick(){
+  if(!A.active||A.busy) return;
+  // 손님이 직접 메뉴를 담으면 무엇을 담았는지 알려드린다
+  { const snap={}; K.cart.forEach(i=>snap[i.name]=i.qty);
+    if(A.cartSnap && !A.steps.length){
+      const hit=Object.keys(snap).find(k=>(snap[k]||0)>(A.cartSnap[k]||0));
+      if(hit) A.justAdded=hit;
+    }
+    A.cartSnap=snap; }
+  const now=sig();
+  if(now!==A.sig){                      // 손님이 눌러서 화면이 바뀌었다
+    // 번호를 한 자리 누를 때마다 "번호 눌러주세요"를 다시 읽지 않도록 — 화면·팝업이 바뀔 때만 안내를 새로 한다
+    const base=K.screen+"|"+(K.popup?K.popup.title:"")+"|"+K.payStep;
+    if(base!==A.sigBase){ A.sigBase=base; lastDesc=""; }
+    if(K.screen!=="MENU"){ A.menuSaid=false; A.setAskedAt=null; A.setShortAt=null; }
+    A.sig=now;
+
+    if(A.waiting){
+      if(A.waiting.consume){ A.steps.shift(); A.doneSteps.push(A.waiting.step); }
+      A.waiting=null; renderPlan();
+    }
+    if(A.confirmNode){                   // 여쭙는 사이에 손님이 직접 누르셨다
+      if(A.confirmConsume&&A.steps[0]===A.confirmStep){ A.steps.shift(); A.doneSteps.push(A.confirmStep); }
+      A.confirmNode=null; A.confirmStep=null; A.askHold=null; renderPlan();
+    }
+    clearPoint();
+  }
+  if(A.askHold){                        // 세트/단품을 여쭤본 상태
+    if(A.askHold===now) return;          // 아직 대답 전
+    if(K.screen==="SETOPT") A.setChoice="세트로";          // 손님이 직접 눌렀다
+    else if(cartCount()>A.askCart) A.setChoice="단품으로";
+    A.askHold=null;
+  }
+  if(A.waiting){                        // 아직 안 누르셨다 — 재촉하지 않고 기다린다
+    if(!document.body.contains(A.waiting.node)||A.waiting.node.offsetParent===null){
+      A.waiting=null; clearPoint();
+    } else return;
+  }
+  // 번호 11자리를 다 누르면 읽어드리고 맞는지 여쭌다
+  if(K.screen==="PAY"&&K.payStep===1&&!K.popup&&K.phone.length===11&&A.phoneSaid!==K.phone
+     &&!A.steps.some(x=>/^[0-9]$/.test(x))){
+    A.phoneSaid=K.phone;
+    const p=K.phone, sp=x=>x.split("").join(" ");
+    const ok=readScreen().find(e=>btnName(e.el)==="확인");
+    if(ok&&!A.autoClick) pointAt(ok.el);
+    speak(`다 누르셨네요. ${sp(p.slice(0,3))}, ${sp(p.slice(3,7))}, ${sp(p.slice(7))}. 이 번호가 맞으면 `
+      +(A.autoClick? "'확인'이라고 말씀해주세요." : "'확인'을 눌러주세요.")
+      +" 틀렸으면 '지우기'로 고치시면 돼요.");
+    A.busy=true; setTimeout(()=>{ A.busy=false; },4500);
+    return;
+  }
+  if(!A.steps.length){ describe(); return; }
+  const step=A.steps[0];
+  renderPlan();
+  const r=planStep(step);
+  if(!r && AI.ready && !AI.asked.has(K.screen+"|"+step) && !/^[0-9]$/.test(step)){
+    AI.asked.add(K.screen+"|"+step);
+    A.busy=true;
+    aiPickButton(step).then(hit=>{ if(hit) AI.alias[step]=hit; }).finally(()=>{ A.busy=false; });
+    return;
+  }
+  if(!r){
+    A.retry++;
+    if(A.retry>3){
+      A.steps.shift(); A.retry=0;
+      if(!OPTIONAL.has(step)) speak(A.autoClick
+        ? "'"+step+"', 이 화면에는 없네요. 다시 한 번 말씀해주시겠어요?"
+        : "'"+step+"', 이 화면에는 없네요. 화면에서 직접 골라보시겠어요?");
+      renderPlan();
+    }
+    return;
+  }
+  A.retry=0;
+  if(r.ask){                             // 손님이 정할 것 — 남은 순서는 그대로 두고 대답(또는 직접 누름)을 기다린다
+    speak(r.say); A.askHold=A.sig; A.askCart=cartCount(); renderPlan(); return; }
+  pointAt(r.node);
+  A.waiting={node:r.node,step:step,consume:!r.keep};
+  if(A.autoClick){                       // 대신 눌러드리는 모드 — 누르고 그 단계는 끝낸다
+    const bn0=btnName(r.node);
+    if(DANGEROUS.test(bn0)&&A.confirmNode!==r.node){   // 돈이 걸린 버튼은 "네" 를 듣기 전까지 누르지 않는다
+      A.confirmNode=r.node; A.confirmStep=step; A.confirmConsume=!r.keep;
+      A.waiting=null; A.askHold=A.sig; A.askCart=cartCount();
+      speak("'"+bn0+"' 누를까요? 맞으면 '네'라고 말씀해주세요.");
+      return;
+    }
+    const fast=/^[0-9]$/.test(step);     // 번호 키패드는 빠르게
+    if(!fast) speak(r.say||("'"+btnName(r.node)+"' 누를게요."));
+    const nd=r.node;
+    A.waiting=null;
+    if(!r.keep){ A.steps.shift(); A.doneSteps.push(step); renderPlan(); }
+    A.busy=true;
+    setTimeout(()=>{ if(A.autoClick&&document.body.contains(nd)) nd.click(); },fast?120:650);
+    setTimeout(()=>{ A.busy=false; A.sig=sig(); clearPoint(); },fast?320:1000);
+  }else{
+    { const bn=btnName(r.node);
+      speak(/터치/.test(bn) ? "화면 아무 데나 한 번 눌러보세요."
+          : /^[0-9]$/.test(step) ? bn                       // 번호는 숫자만 짧게
+          : "여기, '"+bn+"' 눌러보세요. 노란 테두리 친 곳이에요."); }
+  }
+}
+setInterval(tick,450);
+
+/* 지금 화면에서 고를 수 있는 것들 */
+const SKIP_OPT=/^(닫기|광고 닫기|이전|뒤로|처음으로|ENG|中文|日本語|직원 호출|장바구니|수량 빼기|수량 더하기|삭제)$/;
+const GO_RANK=[[/^(결제하기|계산하기)$/,3],[/^(담기|확인|다음|계속)$/,2],[/^더 담기$/,1]];
+function eul(w){                      // 받침에 따라 '을/를'
+  const c=(w||"").charCodeAt((w||"").length-1);
+  return (c>=0xac00&&c<=0xd7a3&&(c-0xac00)%28!==0)? "을":"를";
+}
+function optionsSay(){
+  if(K.screen==="PAY"&&K.payStep===1) return "";   // 숫자 키패드 — 버튼 이름을 읽어봐야 도움이 안 된다
+  if(K.screen==="INST") return "";                 // 할부 개월 키패드도 마찬가지
+  if(K.screen==="CARD"||K.screen==="DONE") return "";   // 결제 중엔 '결제 취소'를 권하면 안 된다
+  const names=[]; let go=null, goRank=0;
+  readScreen().forEach(e=>{
+    const t=btnName(e.el);
+    if(!t) return;
+    const hit=GO_RANK.find(([re])=>re.test(t));
+    if(hit){ if(hit[1]>goRank){ go=t; goRank=hit[1]; } return; }
+    if(SKIP_OPT.test(t)||names.includes(t)) return;
+    names.push(t);
+  });
+  const parts=[];
+  const V=A.autoClick? "말씀해보세요" : "눌러보세요";
+  if(names.length>4) parts.push(A.autoClick? "드시고 싶은 거 말씀해보세요." : "드시고 싶은 거 화면에서 눌러보세요.");
+  else if(names.length===1) parts.push("'"+names[0]+"', "+V+".");
+  else if(names.length) parts.push(names.map(n=>"'"+n+"'").join(", ")+" 있어요. 편한 쪽으로 "+V+".");
+  if(go) parts.push((names.length? "다 고르셨으면 " : "")+"'"+go+"', "+V+".");
+  return parts.join(" ");
+}
+
+/* 말 없이 화면만 바뀌었을 때 안내 */
+let lastDesc="";
+function popName(){ return ((K.popup&&K.popup.body)||"").split("\n")[0].trim() || "햄버거"; }
+function describe(){
+  if(!A.active) return;
+  let t="";
+  if(K.popup&&/신메뉴/.test(K.popup.title)) t="";          // 광고는 아래 블록에서 한 번만 말한다
+  else if(K.popup&&/세트로/.test(K.popup.title)){
+    const n=cartCount();
+    if(A.setAskedAt!=null && A.setAskedAt!==n){          // 여러 개 고를 때 두 번째 것부터는 짧게 한 번만
+      if(A.setShortAt!==n){ A.setShortAt=n; lastDesc="이것도"; speak(`${popName()} 고르셨네요. 이것도 세트로 하실래요, 햄버거만 하실래요?`); }
+      return;
+    }
+    if(A.setAskedAt==null) A.setAskedAt=n;
+    t=`${popName()} 고르셨네요. 감자튀김이랑 음료가 같이 나오는 세트로 하실래요, 햄버거만 하실래요?`
+      +(A.autoClick? " '세트로' 또는 '단품으로' 라고 말씀하세요." : "");
+  }
+  else if(K.popup&&/할부/.test(K.popup.title)) t=A.autoClick
+      ? "카드 할부를 고르는 화면이에요. 보통은 일시불로 하시면 돼요. 나눠 내시려면 '석 달', '열두 달' 처럼 말씀하세요."
+      : "카드 할부를 고르는 화면이에요. 보통은 '일시불' 누르시면 돼요. 나눠 내시려면 개월 수를 고르거나 '개월 수 직접 입력' 을 누르세요.";
+  else if(K.popup&&/추가하시겠어요/.test(K.popup.title)) t="치즈스틱을 더 사라고 권하는 화면이에요. 필요 없으면 안 하셔도 돼요.";
+  else if(K.screen==="START") t="주문 시작해 볼까요?";
+  else if(K.screen==="DINE") t="여기서 드시고 가세요? 아니면 가져가세요?";
+  else if(K.screen==="MENU"){
+    const add=A.justAdded; A.justAdded=null;
+    if(A.menuSaid && !K.popup){          // 여러 개 고르는 동안 선택지를 매번 되풀이하지 않고, 담은 것만 짧게
+      if(add){ const line=`${add} 담았어요. 지금 모두 ${cartCount()}개예요. 더 드실 거 있으세요?`; lastDesc=line; speak(line); }
+      return;
+    }
+    A.menuSaid=true;
+    t = add ? `${add} 담았어요. 지금 모두 ${cartCount()}개예요. 더 드실 거 있으세요?`
+      : cartCount()? `지금까지 ${cartCount()}개 담았어요. 더 드실 거 있으세요?` : "뭐 드시고 싶으세요? 햄버거, 치킨, 감자튀김, 음료 있어요.";
+  }
+  else if(K.screen==="SETOPT") t=A.autoClick
+      ? "세트는 감자튀김하고 콜라로 나가요. 바꾸실 게 있으면 말씀하시고, 그대로 괜찮으면 그대로 담아줘, 하시면 돼요."
+      : "세트는 감자튀김하고 콜라로 나가요. 바꾸실 것만 골라주시면 돼요.";
+  else if(K.screen==="INST") t=A.autoClick
+      ? "몇 개월로 나눠 내실지 말씀해주세요. 두 달부터 열두 달까지 됩니다. 한 번에 내시려면 일시불이라고 하세요."
+      : "몇 개월로 나눠 내실지 숫자를 눌러주세요. 두 달부터 열두 달까지 되고, 다 누르시면 '확인'을 눌러주세요.";
+  else if(K.screen==="CART") t="지금까지 담으신 거예요.";
+  else if(K.screen==="PAY"&&K.payStep===0) t="포인트 적립하실래요?";
+  else if(K.screen==="PAY"&&K.payStep===1&&K.phone.length>=11) t="";
+  else if(K.screen==="PAY"&&K.payStep===1) t=A.autoClick
+      ? "휴대폰 번호 불러주세요. 제가 눌러드릴게요."
+      : "번호 눌러주세요. 불러주시면 어디 누를지 하나씩 짚어드릴게요.";
+  else if(K.screen==="PAY"&&K.payStep===2) t=`모두 ${won(cartTotal())}이에요.`;
+  else if(K.screen==="CARD"){
+    const busy=!!document.querySelector("#screen button.primary:disabled");
+    const how={card:["카드 넣어주세요.","넣었어","카드 투입"],
+               qr:["휴대폰으로 QR 코드 찍어주세요.","했어","QR 결제 완료"],
+               gift:["상품권 바코드를 스캐너에 대주세요.","했어","바코드 인식"]}[K.payKind]||["카드 넣어주세요.","넣었어","카드 투입"];
+    t = busy ? "확인 중이에요. 잠시만 기다려주세요."
+      : A.autoClick ? `${how[0]} 다 되셨으면, ${how[1]}, 하고 말씀하시면 돼요.`
+                    : `${how[0]} 그다음 화면에 '${how[2]}' 눌러보세요.`;
+  }
+  else if(K.screen==="DONE") t=K.payKind==="cash"?`주문 접수됐어요. 주문번호 ${K.orderNo} 예요. 카운터에서 현금으로 결제하시면 돼요.`:`다 됐습니다. 주문번호 ${K.orderNo} 예요. 맛있게 드세요.`;
+  // 광고나 추가 권유 팝업은 '닫기' 를 권한다 (자세히 보기 같은 걸 권하면 안 된다)
+  if(K.popup&&/신메뉴|추가하시겠어요|이벤트|행사/.test(K.popup.title||"")){
+    const close=readScreen().find(e=>/닫기|괜찮|아니|필요\s*없/.test(btnName(e.el)));
+    const t2=(K.popup&&/추가하시겠어요/.test(K.popup.title))
+      ? "더 드시라고 권하는 거예요. 필요 없으시면"
+      : "광고예요. 안 보셔도 돼요.";   // 뒤 문장은 모드에 따라 붙는다
+    if(close){
+      const line=t2+(A.autoClick? (/광고/.test(t2)? " 닫아줘, 하고 말씀하시면 닫아드릴게요." : " 괜찮아, 하고 말씀하시면 넘어가요.")
+                                : " '"+btnName(close.el)+"' 눌러보세요.");
+      if(line!==lastDesc){ lastDesc=line; A.descAt=Date.now(); speak(line); }
+      return;
+    }
+  }
+  if(K.screen==="START"){                 // 버튼 문구가 길어 그대로 읽으면 어색하다
+    t = A.autoClick ? "주문 시작해 볼까요? 시작할게, 하고 말씀하시면 돼요."
+                    : "주문 시작해 볼까요? 화면 아무 데나 한 번 눌러보세요.";
+  }else if(!(A.autoClick && /말씀하세요|라고 하세요/.test(t))){   // 이미 뭐라고 말할지 알려준 문장이면 선택지는 생략
+    const opt=optionsSay();
+    if(opt) t = t? (t+" "+opt) : opt;
+  }
+  // 말로 시키는 모드: 한 번에 다 말해도 된다는 걸 주문 초반에 두 번까지 알려준다
+  const addHint = !!t && A.autoClick && A.batchHint<2 && !K.popup &&
+                  (K.screen==="DINE" || (K.screen==="MENU" && cartCount()===0));
+  if(addHint) t += " 불고기버거 포장해서 계산해줘, 이렇게 한 번에 말씀하셔도 돼요.";
+  if(t&&t!==lastDesc){ lastDesc=t; A.descAt=Date.now(); if(addHint) A.batchHint++; speak(t); }
+}
+
+/* 발화 처리 */
+const WAKE=/키돌|키순|기돌|기순|키도리|키수니|기수니|키스니|키손이|키돈이|기도리/;   // 부르는 이름 = 키돌이 / 키순이 (오인식 변형 포함)
+const EXITW=/^(그만|그만해|종료|끝낼래)$/;
+const KOR_NUM={"공":"0","영":"0","령":"0","일":"1","하나":"1","이":"2","둘":"2","삼":"3","셋":"3","사":"4","넷":"4","오":"5","다섯":"5","육":"6","륙":"6","여섯":"6","칠":"7","일곱":"7","팔":"8","여덟":"8","구":"9","아홉":"9"};
+const MON={"한":1,"두":2,"세":3,"네":4,"다섯":5,"여섯":6,"일곱":7,"여덟":8,"아홉":9,"열":10,"열한":11,"열두":12};
+function monthsOf(t){                    // "석 달", "열두 달", "12개월", "6" → 개월 수
+  const n=norm(t).replace(/석달/,"세달").replace(/넉달/,"네달");
+  let m=n.match(/(\d{1,2})(개월|달)/);            if(m) return parseInt(m[1],10);
+  m=n.match(/(열두|열한|열|아홉|여덟|일곱|여섯|다섯|네|세|두|한)(개월|달)/); if(m) return MON[m[1]];
+  m=n.match(/^(\d{1,2})$/);                      if(m) return parseInt(m[1],10);
+  return 0;
+}
+function digitsOf(text){
+  let d=(text.match(/\d/g)||[]).join("");
+  if(d.length>=3) return d;
+  let out="";
+  for(const ch of norm(text)) if(KOR_NUM[ch]) out+=KOR_NUM[ch];
+  return out.length>=3?out:"";
+}
+function heard(text){
+  text=(text||"").trim(); if(!text) return;
+  log("어르신",text,"user");
+  const nn=norm(text);
+  if(A.confirmNode){                                  // "'현금' 누를까요?" 에 대한 대답
+    const nd=A.confirmNode, st=A.confirmStep, consume=A.confirmConsume;
+    if(/^(네|예|응|어|그래|맞아|맞아요|맞습니다|좋아|좋아요|확인|눌러|눌러줘|해줘|오케)/.test(nn)){
+      A.confirmNode=null; A.confirmStep=null; A.askHold=null;
+      if(consume&&A.steps[0]===st){ A.steps.shift(); A.doneSteps.push(st); renderPlan(); }
+      speak("네, 누를게요."); A.busy=true;
+      setTimeout(()=>{ if(document.body.contains(nd)) nd.click(); },500);
+      setTimeout(()=>{ A.busy=false; A.sig=sig(); clearPoint(); },1000);
+      return;
+    }
+    if(/^(아니|아뇨|아녀|안눌러|안돼|취소|잠깐|기다려|다른)/.test(nn)){
+      A.confirmNode=null; A.confirmStep=null; A.askHold=null;
+      if(A.steps[0]===st){ A.steps.shift(); renderPlan(); }
+      clearPoint(); speak("네, 안 누를게요. 원하시는 걸 말씀해주세요."); return;
+    }
+    A.confirmNode=null; A.confirmStep=null; A.askHold=null;   // 다른 말씀이면 그 말대로 다시 판단
+  }
+  if(A.askHold && /세트|단품|버거만|그냥/.test(nn)){   // "세트로 하실래요?" 에 대한 대답 — 남은 순서는 이어서
+    A.setChoice=/세트/.test(nn)?"세트로":"단품으로"; A.askHold=null; A.sig=""; renderPlan(); return;
+  }
+  if(/대신눌러|대신해|네가눌러|자동으로|다눌러/.test(nn)){ setMode(true,true); return; }
+  if(/내가누를|직접누를|알려만|짚어만|가르쳐만/.test(nn)){ setMode(false,true); return; }
+  if(WAKE.test(norm(text))){          // 이름을 부르면 목소리만 바뀐다 (부르지 않아도 안내는 계속)
+    if(/키돌|기돌|키도리|키돈이|기도리/.test(norm(text)) && V_MALE){A.gender="male";A.persona="키돌이";}
+    else {A.gender="female";A.persona="키순이";}
+    $("#persona").textContent=A.persona;
+    A.active=true; A.steps=[]; A.doneSteps=[]; A.waiting=null; clearPoint();
+    if(Date.now()-(A.descAt||0)>20000) lastDesc="";   // 방금 한 화면 설명을 이름 불렀다고 또 하지 않는다
+    setStatus("뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
+    speak(`네, ${A.persona}예요. 뭐 누르면 되는지 하나씩 알려드릴게요.`);
+    return;
+  }
+  if(EXITW.test(norm(text))){
+    A.active=false; A.steps=[]; A.waiting=null; clearPoint(); renderPlan(); guide("");
+    setStatus('안내 꺼짐 — "키순이" 라고 부르면 다시 켜져요');
+    speak("네, 안내 멈출게요. 필요하시면 언제든 다시 불러주세요."); return;
+  }
+  lastDesc="";
+  // 번호를 다 누른 뒤 "맞아요/네" → 확인
+  if(K.screen==="PAY"&&K.payStep===1&&K.phone.length>=10&&/^(네|예|응|맞아|맞아요|맞습니다|맞어|그래|확인|확인해줘|확인해)$/.test(nn)){
+    applySteps(text,["확인"],true); return;
+  }
+  // 할부 개월: "석 달", "열두 달", "12개월" → 개월 수를 눌러드린다
+  if((K.screen==="INST"||(K.popup&&/할부/.test(K.popup.title||"")))&&!/취소|그만|이전/.test(nn)){
+    if(/일시불|한번에|한꺼번에/.test(nn)){ applySteps(text,["일시불"],true); return; }
+    const mo=monthsOf(text);
+    if(mo>=2&&mo<=12){
+      const digits=String(mo).split("");
+      A.steps = K.screen==="INST" ? digits.concat("확인")
+              : (mo===3||mo===6) ? [mo+"개월"]
+              : ["개월 수 직접 입력"].concat(digits).concat("확인");
+      A.doneSteps=[]; A.retry=0; renderPlan();
+      speak(`${mo}개월 할부로 할게요.`);
+      return;
+    }
+  }
+  // 번호 입력 화면: 불러주신 번호를 한 자리씩 눌러드린다
+  if(K.screen==="PAY"&&K.payStep===1&&!/적립|취소|그만/.test(norm(text))){
+    const d=digitsOf(text);
+    if(d){
+      A.steps=d.split(""); A.doneSteps=[]; A.retry=0; renderPlan();
+      speak(`${d.split("").join(" ")} 눌러드릴게요.`);
+      return;
+    }
+  }
+  A.waiting=null; clearPoint();
+  if(AI.ready && !A.busy){
+    A.busy=true; setStatus("생각 중…");
+    aiUnderstand(text).then(res=>{
+      A.busy=false; A.sig=sig();
+      if(!res){ applySteps(text, splitSteps(text)); return; }
+      if(!res.steps.length){                       // 질문·잡담 → 대답만 (대답이 끝날 때까지 다른 안내는 쉰다)
+        const ans=res.say || "잘 못 알아들었어요. 다시 한 번 말씀해주세요.";
+        speak(ans); A.busy=true; setTimeout(()=>{ A.busy=false; }, Math.min(1500+ans.length*110, 6000));
+        setStatus(A.autoClick? "말씀하시면 제가 눌러드릴게요" : "뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
+        return;
+      }
+      if(res.say){ speak(res.say); A.busy=true; setTimeout(()=>{ A.busy=false; applySteps(text,res.steps,true); }, Math.min(1200+res.say.length*110, 4500)); }
+      else applySteps(text, res.steps, true);
+    });
+    return;
+  }
+  applySteps(text, splitSteps(text));
+}
+/* "불고기버거 두 개" → 메뉴 단계(+세트/단품 등 딸린 단계)를 개수만큼 반복 */
+const KNUM={"한":1,"하나":1,"두":2,"둘":2,"세":3,"셋":3,"네":4,"넷":4,"다섯":5};
+function qtyAfter(text,name){
+  const t=norm(text), key=norm(name).replace(/\(.\)$/,"");
+  const i=t.indexOf(key); if(i<0) return 1;
+  const m=t.slice(i+key.length).match(/^(?:세트로?|단품으?로?)?(\d+|하나|한|두|둘|세|셋|네|넷|다섯)개/);
+  if(!m) return 1;
+  const q=/^\d+$/.test(m[1])? parseInt(m[1],10) : KNUM[m[1]];
+  return Math.min(Math.max(q||1,1),5);
+}
+function expandQty(text,steps){
+  const items=new Set(ALL_ITEMS.map(x=>x.name)), out=[];
+  for(let i=0;i<steps.length;i++){
+    if(!items.has(steps[i])){ out.push(steps[i]); continue; }
+    const grp=[steps[i]];
+    while(i+1<steps.length && /^(세트로|단품으로|그대로)/.test(steps[i+1])) grp.push(steps[++i]);
+    const q=qtyAfter(text,steps[grp.length?i-grp.length+1:i]);
+    for(let k=0;k<q;k++) out.push(...grp);
+    if(q>1) log("어시스트",`${grp[0]} ${q}개 — ${q}번 담습니다`);
+  }
+  return out;
+}
+function applySteps(text, steps, quiet){
+  steps=expandQty(text,steps); A.setChoice=null; A.askHold=null;
+  A.steps = steps.length? steps : [text];
+  A.doneSteps=[]; A.retry=0; renderPlan();
+  if(steps.length>1 && !quiet){            // 앞말이 끝난 뒤에 첫 단계를 짚는다
+    speak("네, 순서대로 하나씩 짚어드릴게요."); A.busy=true; setTimeout(()=>{ A.busy=false; },2000);
+  }
+}
+
+/* 음성 인식 */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+const SECURE=window.isSecureContext;
+let rec=null, pausedForTTS=false;
+function hint(t){ $("#michint").textContent=t; }
+function micPause(){ if(rec&&A.listening){ pausedForTTS=true; try{rec.stop();}catch(_){} } }
+function micResume(){ if(rec&&A.listening&&pausedForTTS){ pausedForTTS=false; setTimeout(()=>{ try{rec.start();}catch(_){} },250); } }
+if(!SR){
+  hint("이 브라우저는 음성 인식을 지원하지 않아요. 크롬(PC/안드로이드)에서 열거나, 아래에 타이핑하면 똑같이 움직입니다.");
+}else if(!SECURE){
+  hint("파일(file://)로 열어서 마이크를 쓸 수 없어요. http://localhost 나 https 주소로 열면 음성이 됩니다. 지금은 타이핑으로 체험하세요.");
+}else{
+  rec=new SR(); rec.lang="ko-KR"; rec.continuous=true; rec.interimResults=true;
+  rec.onstart=()=>{ setStatus("듣고 있어요 — 말씀하세요"); };
+  rec.onresult=e=>{
+    let interim="";
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const r=e.results[i];
+      if(r.isFinal){
+        if(!speaking) heard(r[0].transcript);
+        setStatus("듣고 있어요 — 말씀하세요");
+      } else interim+=r[0].transcript;
+    }
+    if(interim) setStatus("🎤 "+interim);
+  };
+  rec.onend=()=>{ if(A.listening&&!pausedForTTS){ setTimeout(()=>{ try{rec.start();}catch(_){} },200); } };
+  rec.onerror=ev=>{
+    if(ev.error==="not-allowed"||ev.error==="service-not-allowed"){
+      A.listening=false; micUI();
+      hint("마이크 권한이 거부됐어요. 주소창 왼쪽 자물쇠 → 마이크 허용 후 다시 눌러주세요. (새 탭에서 열면 권한을 물어봅니다)");
+    }else if(ev.error==="audio-capture"){
+      A.listening=false; micUI(); hint("마이크를 찾지 못했어요. 장치를 확인해주세요.");
+    } // no-speech / aborted 는 onend 에서 자동 재시작
+  };
+}
+function micUI(){
+  setTimeout(syncBig,0);
+  $("#micbtn").textContent=A.listening?"⏸ 멈추기":"🎤 말하기";
+  const k=$("#kmic");        // 라벨은 고정 — 켜진 모드는 setMode 가 표시한다
+  if(k) k.textContent=A.listening?"🎤 말로 주문하기 · 듣는 중":"🎤 말로 주문하기";
+}
+const INFRAME = (window.self!==window.top);
+function openInNewTab(){ try{ window.open(location.href,"_blank","noopener"); }catch(_){}}
+$("#micbtn").addEventListener("click",async ()=>{
+  if(!rec){ $("#say").focus(); return; }
+  if(A.listening){ A.listening=false; try{rec.stop();}catch(_){} micUI(); return; }
+  // 권한을 먼저 직접 물어본다 (실패 이유를 정확히 알 수 있음)
+  try{
+    if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
+      const st=await navigator.mediaDevices.getUserMedia({audio:true});
+      st.getTracks().forEach(t=>t.stop());
+    }
+  }catch(err){
+    const n=err&&err.name||"";
+    if(/NotAllowed|Security/.test(n)){
+      hint(INFRAME
+        ? "이 창(미리보기) 안에서는 마이크가 막혀 있어요. 아래 '새 탭에서 열기' 를 눌러 크롬 탭에서 열면 마이크 권한을 물어봅니다."
+        : "마이크 권한이 거부됐어요. 주소창 왼쪽 자물쇠 → 마이크 → 허용 후 다시 눌러주세요.");
+    }else if(/NotFound|NotReadable|Overconstrained/.test(n)){
+      hint("마이크 장치를 찾지 못했거나 다른 프로그램이 쓰고 있어요. 장치를 확인해주세요.");
+    }else{
+      hint("마이크를 켤 수 없어요 ("+(n||"알 수 없는 오류")+"). 타이핑으로도 똑같이 동작합니다.");
+    }
+    $("#newtab").hidden=!INFRAME;
+    return;
+  }
+  A.listening=true;
+  try{ rec.start(); }catch(_){}
+  micUI();
+});
+if(new URLSearchParams(location.search).has("dev")) document.body.classList.add("dev");
+/* 말로 주문하기 = 말로만 하고 제가 눌러드리는 쪽 / 내가 누를게요 = 짚어드리고 손님이 누르는 쪽 */
+$("#kmic").addEventListener("click",()=>{
+  if(!A.listening) $("#micbtn").click();      // 마이크부터 켜고
+  if(!A.autoClick) setMode(true,true);        // 대신 눌러드리는 모드로
+});
+$("#kguide").addEventListener("click",()=>setMode(false,true));
+/* 글씨 크기 — 보통 → 크게 → 더 크게 → 보통 */
+const ZOOMS=[1,1.18,1.36], ZOOMLBL=["🔍 글씨 크게","🔍 더 크게","🔍 원래대로"];
+let zi=0, autoZoom=false;
+/* 도움이 필요한 분(말로 주문하기 / 대신 눌러주세요)일 때만 자동으로 글씨를 키운다. 일반 손님은 보통 크기. */
+function helpOn(){ return !!(A.active && (A.listening || A.autoClick)); }
+function syncBig(){
+  const on=helpOn();
+  if(on && zi===0){ zi=1; autoZoom=true; applyZoom(); }
+  else if(!on && autoZoom){ zi=0; autoZoom=false; applyZoom(); }
+  $("#kiosk").classList.toggle("assisted",on);
+}
+function applyZoom(){
+  document.documentElement.style.setProperty("--kzoom",ZOOMS[zi]);
+  $("#kzoom").textContent=ZOOMLBL[zi];
+  $("#kzoom").classList.toggle("on",zi>0);
+}
+applyZoom();
+$("#kzoom").addEventListener("click",()=>{ zi=(zi+1)%ZOOMS.length; autoZoom=false; applyZoom();
+  speak(zi===0? "글씨 원래대로 했어요." : "글씨 크게 했어요."); });
+
+function setMode(auto,say){
+  A.autoClick=!!auto; A.waiting=null; clearPoint(); lastDesc=""; if(auto) A.batchHint=0;
+  $("#mguide").classList.toggle("on",!auto); $("#mguide").setAttribute("aria-pressed",String(!auto));
+  $("#mauto").classList.toggle("on",!!auto);  $("#mauto").setAttribute("aria-pressed",String(!!auto));
+  setStatus(auto? "말씀하시면 제가 눌러드릴게요" : "뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
+  syncBig();
+  const kg=$("#kguide"), km2=$("#kmic");   // 두 버튼을 나란히 — 지금 켜진 쪽을 강조
+  if(kg){ kg.classList.toggle("on",!auto); kg.setAttribute("aria-pressed",String(!auto)); }
+  if(km2){ km2.classList.toggle("on",!!auto); km2.setAttribute("aria-pressed",String(!!auto)); }
+  if(say) speak(auto? "네, 이제 제가 눌러드릴게요. 불고기버거 포장해서 계산해줘, 이렇게 한 번에 말씀하셔도 돼요."
+                    : "네, 누를 곳만 알려드릴게요. 편하게 천천히 눌러보세요.");
+}
+$("#mguide").addEventListener("click",()=>setMode(false,true));
+$("#mauto").addEventListener("click",()=>setMode(true,true));
+$("#newtab").addEventListener("click",openInNewTab);
+if(INFRAME) $("#newtab").hidden=false;
+$("#mutebtn").addEventListener("click",()=>{
+  A.muted=!A.muted;
+  $("#mutebtn").textContent=A.muted?"🔇 소리 켜기":"🔈 소리 끄기";
+  if(A.muted&&window.speechSynthesis) speechSynthesis.cancel();
+});
+$("#resetbtn").addEventListener("click",()=>{
+  A.active=true;A.steps=[];A.doneSteps=[];A.waiting=null;clearPoint();renderPlan();guide("");logbox.innerHTML="";
+  lastDesc=""; setStatus("뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
+  resetAll(); A.sig=sig();
+});
+$("#sendbtn").addEventListener("click",send);
+$("#say").addEventListener("keydown",e=>{ if(e.key==="Enter") send(); });
+function send(){ const v=$("#say").value; $("#say").value=""; heard(v); }
+
+[["대신 눌러줘","대신 눌러줘"],
+ ["내가 누를게","내가 누를게"],
+ ["불고기버거 포장해서 계산해줘","불고기버거 포장해서 계산해줘"],
+ ["치즈버거 세트로 먹고 갈게","치즈버거 세트로 먹고 갈게"],
+ ["감자튀김도 담아줘","감자튀김 (M) 담아줘"],
+ ["계산할게","계산할게"],
+ ["괜찮아","괜찮아"],
+ ["적립할게","적립할게"],
+ ["공일공 일이삼사 오륙칠팔","공일공 일이삼사 오륙칠팔"],
+ ["확인","확인"],
+ ["적립 안 해","적립 안 해"],
+ ["카드로 할게","카드로 할게"],
+ ["넣었어","넣었어"]
+].forEach(([label,cmd])=>{
+  const bt=el("button",null,label);
+  bt.addEventListener("click",()=>heard(cmd));
+  $("#chips").appendChild(bt);
+});
+
+/* 시작 */
+render(); onEnter("START"); setStatus("뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
+A.sig=sig();
+log("안내","말은 안 하셔도 됩니다. 화면마다 뭘 누르면 되는지 알려드리고, 누르는 건 직접 하시면 됩니다.");
+if(window.speechSynthesis) pickVoices();
+})();
+</script>
+</body>
+</html>
