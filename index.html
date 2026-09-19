@@ -935,7 +935,8 @@ function planStep(step){
   // 광고 팝업은 무조건 먼저 닫는다
   if(K.popup&&/신메뉴/.test(K.popup.title)){
     const e=find(els,"광고닫기|^닫기");
-    if(e) return {node:e.el,say:"광고를 닫습니다.",keep:true};
+    // "닫아줘" 라고 해서 닫는 거면 그 말은 여기서 끝난다 (남겨두면 다음 화면까지 따라다닌다)
+    if(e) return {node:e.el,say:"광고를 닫습니다.",keep:!/닫|광고/.test(n)};
   }
   if(K.screen==="START"){
     const e=find(els,"화면을터치");
@@ -1228,6 +1229,7 @@ function digitsOf(text){
 }
 function heard(text){
   text=(text||"").trim(); if(!text) return;
+  cutSpeech(); A.busy=false;              // 안내 중이라도 손님 말이 먼저다 (성격 급하신 분)
   log("어르신",text,"user");
   const nn=norm(text);
   if(A.confirmNode){                                  // "'현금' 누를까요?" 에 대한 대답
@@ -1337,11 +1339,26 @@ function expandQty(text,steps){
   }
   return out;
 }
+const RESET_WORD=/취소|처음부터|다시할|아니야|아냐|잘못|그만/;
 function applySteps(text, steps, quiet){
   steps=expandQty(text,steps); A.setChoice=null; A.askHold=null;
-  A.steps = steps.length? steps : [text];
-  A.doneSteps=[]; A.retry=0; renderPlan();
-  if(steps.length>1 && !quiet){            // 앞말이 끝난 뒤에 첫 단계를 짚는다
+  const fresh = steps.length? steps : [text];
+  const DINE=/^(매장에서 먹기|포장하기|매장|포장)$/;
+  const PAYS=/^(계산|결제|결제하기)$/;
+  if(A.steps.length && !RESET_WORD.test(norm(text))){
+    /* 앞 주문이 아직 남아 있는데 또 말씀하셨다 — 덮어쓰지 않고 이어 붙인다.
+       (성격 급하신 분이 안내 도중에 계속 얹어도 앞말이 사라지지 않게) */
+    const had=new Set(A.doneSteps.concat(A.steps));
+    const add=fresh.filter(s=>!(DINE.test(s)&&[...had].some(x=>DINE.test(x))));   // 먹는 곳은 한 번만
+    const wantPay=A.steps.some(s=>PAYS.test(s))||add.some(s=>PAYS.test(s));
+    A.steps=A.steps.filter(s=>!PAYS.test(s))
+                   .concat(add.filter(s=>!PAYS.test(s)))
+                   .concat(wantPay? ["계산"] : []);          // 계산은 언제나 맨 뒤
+  }else{
+    A.steps=fresh; A.doneSteps=[];
+  }
+  A.retry=0; renderPlan();
+  if(A.steps.length>1 && !quiet){            // 앞말이 끝난 뒤에 첫 단계를 짚는다
     speak("네, 순서대로 하나씩 짚어드릴게요."); A.busy=true; setTimeout(()=>{ A.busy=false; },2000);
   }
 }
@@ -1351,8 +1368,16 @@ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 const SECURE=window.isSecureContext;
 let rec=null, pausedForTTS=false;
 function hint(t){ $("#michint").textContent=t; }
-function micPause(){ if(rec&&A.listening){ pausedForTTS=true; try{rec.stop();}catch(_){} } }
-function micResume(){ if(rec&&A.listening&&pausedForTTS){ pausedForTTS=false; setTimeout(()=>{ try{rec.start();}catch(_){} },250); } }
+/* 안내가 나오는 중에도 마이크는 계속 켜 둔다 — 성격 급하신 분이 말을 끊고 주문할 수 있어야 한다.
+   대신 어시스트 목소리가 마이크로 되들어온 것은 걸러내고(isEcho), 손님이 말을 시작하면 안내를 바로 멈춘다. */
+function micPause(){ }
+function micResume(){ }
+function cutSpeech(){ try{ if(window.speechSynthesis) speechSynthesis.cancel(); }catch(_){} speaking=false; }
+function isEcho(t){                       // 지금 읽고 있는 안내문 안에 그대로 들어 있으면 스피커 소리로 본다
+  if(!speaking) return false;
+  const a=norm(t), b=norm(ttsText(A.lastSay||""));
+  return a.length>=6 && b.length>0 && b.includes(a);
+}
 if(!SR){
   hint("이 브라우저는 음성 인식을 지원하지 않아요. 크롬(PC/안드로이드)에서 열거나, 아래에 타이핑하면 똑같이 움직입니다.");
 }else if(!SECURE){
@@ -1360,16 +1385,37 @@ if(!SR){
 }else{
   rec=new SR(); rec.lang="ko-KR"; rec.continuous=true; rec.interimResults=true;
   rec.onstart=()=>{ setStatus("듣고 있어요 — 말씀하세요"); };
+  /* 한 번에 여러 개를 말씀하시면 인식기가 "불고기버거 치즈버거" / "새우버거 포장해줘" 처럼
+     토막으로 끊어 넘긴다. 토막마다 처리하면 앞말이 지워지므로, 잠깐 모아서 한 문장으로 처리한다. */
+  let heardBuf="", heardTimer=null;
+  const HEARD_WAIT=800;                    // 토막 모으는 시간 — 말이 끝난 티가 나면 기다리지 않는다
+  const DONE_WORDS=/해줘|주세요|할게|줄래|부탁|계산|결제|끝|담아|먹을게|갈게|넣었|괜찮|확인|일시불|적립/;
+  function flushHeard(){
+    clearTimeout(heardTimer);
+    const t=heardBuf; heardBuf="";
+    if(t){ setStatus("듣고 있어요 — 말씀하세요"); heard(t); }
+  }
+  function pushHeard(txt){
+    txt=(txt||"").trim(); if(!txt) return;
+    if(isEcho(txt)) return;                // 어시스트 목소리가 되들어온 것
+    cutSpeech();                           // 손님이 말하기 시작하면 안내는 바로 멈춘다
+    heardBuf=(heardBuf? heardBuf+" " : "")+txt;
+    setStatus("🎤 "+heardBuf);
+    clearTimeout(heardTimer);
+    if(DONE_WORDS.test(norm(heardBuf))) flushHeard();     // 끝맺는 말이 나오면 기다리지 않고 바로
+    else heardTimer=setTimeout(flushHeard, HEARD_WAIT);
+  }
   rec.onresult=e=>{
     let interim="";
     for(let i=e.resultIndex;i<e.results.length;i++){
       const r=e.results[i];
-      if(r.isFinal){
-        if(!speaking) heard(r[0].transcript);
-        setStatus("듣고 있어요 — 말씀하세요");
-      } else interim+=r[0].transcript;
+      if(r.isFinal) pushHeard(r[0].transcript);
+      else interim+=r[0].transcript;
     }
-    if(interim) setStatus("🎤 "+interim);
+    if(interim&&!isEcho(interim)){
+      cutSpeech();                         // 아직 말이 안 끝났어도, 손님 목소리가 들리면 안내부터 멈춘다
+      setStatus("🎤 "+(heardBuf? heardBuf+" " : "")+interim);
+    }
   };
   rec.onend=()=>{ if(A.listening&&!pausedForTTS){ setTimeout(()=>{ try{rec.start();}catch(_){} },200); } };
   rec.onerror=ev=>{
