@@ -259,7 +259,7 @@ body.dev .kctl{display:none}
       <div class="guide" id="guide"><div class="who" id="guidewho">도우미</div><div class="say" id="guidesay"></div><div class="step" id="guidestep"></div></div>
       <div class="kctl" id="kctl">
         <button id="kmic" aria-pressed="false">🎤 말로 주문하기</button>
-        <button id="kguide" class="on" aria-pressed="true">👆 내가 누를게요</button>
+        <button id="kguide" aria-pressed="false">👆 내가 누를게요</button>
         <button id="kzoom" title="글씨 크기">🔍 글씨 크게</button>
       </div>
     </div>
@@ -306,6 +306,7 @@ body.dev .kctl{display:none}
 
   <div class="foot">
     <span>미리버거는 시연용 가상 매장입니다. · v0918-할부</span>
+    <a href="https://github.com/buruk77778/talk-to-kiosk" target="_blank" rel="noopener">실제 키오스크에 붙는 버전 (GitHub)</a>
   </div>
 </div>
 
@@ -625,7 +626,7 @@ setInterval(()=>{
 $("#kiosk").addEventListener("pointerdown",touch);
 
 /* ─────────────── 어시스트 ─────────────── */
-const A={active:true,persona:"키순이",gender:"female",steps:[],doneSteps:[],busy:false,muted:false,listening:false,lastSay:"",retry:0,
+const A={active:false,persona:"키순이",gender:"female",steps:[],doneSteps:[],busy:false,muted:false,listening:false,lastSay:"",retry:0,
          waiting:null,sig:"",autoClick:false,batchHint:0};
 const logbox=$("#log"), planbox=$("#plan");
 
@@ -1164,7 +1165,8 @@ function describe(){
   else if(K.screen==="PAY"&&K.payStep===1&&K.phone.length>=11) t="";
   else if(K.screen==="PAY"&&K.payStep===1) t=A.autoClick
       ? "휴대폰 번호 불러주세요. 제가 눌러드릴게요."
-      : "번호 눌러주세요. 불러주시면 어디 누를지 하나씩 짚어드릴게요.";
+      : (A.listening ? "번호 눌러주세요. 불러주시면 어디 누를지 하나씩 짚어드릴게요."
+                     : "번호를 하나씩 눌러주세요. 다 누르시면 '확인'을 눌러주세요.");
   else if(K.screen==="PAY"&&K.payStep===2) t=`모두 ${won(cartTotal())}이에요.`;
   else if(K.screen==="CARD"){
     const busy=!!document.querySelector("#screen button.primary:disabled");
@@ -1252,15 +1254,16 @@ function heard(text){
     if(/키돌|기돌|키도리|키돈이|기도리/.test(norm(text)) && V_MALE){A.gender="male";A.persona="키돌이";}
     else {A.gender="female";A.persona="키순이";}
     $("#persona").textContent=A.persona;
-    A.active=true; A.steps=[]; A.doneSteps=[]; A.waiting=null; clearPoint();
-    if(Date.now()-(A.descAt||0)>20000) lastDesc="";   // 방금 한 화면 설명을 이름 불렀다고 또 하지 않는다
+    const wasOff=!A.active;
+    helpStart();
+    if(Date.now()-(A.descAt||0)>20000||wasOff) lastDesc="";   // 방금 한 화면 설명을 이름 불렀다고 또 하지 않는다
+    setMode(A.autoClick,false);
     setStatus("뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
     speak(`네, ${A.persona}예요. 뭐 누르면 되는지 하나씩 알려드릴게요.`);
     return;
   }
   if(EXITW.test(norm(text))){
-    A.active=false; A.steps=[]; A.waiting=null; clearPoint(); renderPlan(); guide("");
-    setStatus('안내 꺼짐 — "키순이" 라고 부르면 다시 켜져요');
+    helpOff(false);
     speak("네, 안내 멈출게요. 필요하시면 언제든 다시 불러주세요."); return;
   }
   lastDesc="";
@@ -1414,10 +1417,29 @@ $("#micbtn").addEventListener("click",async ()=>{
 if(new URLSearchParams(location.search).has("dev")) document.body.classList.add("dev");
 /* 말로 주문하기 = 말로만 하고 제가 눌러드리는 쪽 / 내가 누를게요 = 짚어드리고 손님이 누르는 쪽 */
 $("#kmic").addEventListener("click",()=>{
+  if(A.active&&A.autoClick){ helpOff(true); return; }   // 켜진 쪽을 다시 누르면 안내 끄기
   if(!A.listening) $("#micbtn").click();      // 마이크부터 켜고
-  if(!A.autoClick) setMode(true,true);        // 대신 눌러드리는 모드로
+  helpStart(); setMode(true,true);            // 대신 눌러드리는 모드로
 });
-$("#kguide").addEventListener("click",()=>setMode(false,true));
+$("#kguide").addEventListener("click",()=>{
+  if(A.active&&!A.autoClick){ helpOff(true); return; }
+  helpStart(); setMode(false,true);
+});
+function helpStart(){                          // 손님이 도움을 부른 순간부터 안내 시작
+  A.active=true; A.steps=[]; A.doneSteps=[]; A.waiting=null; A.confirmNode=null;
+  A.askHold=null; A.retry=0; lastDesc=""; clearPoint(); renderPlan(); A.sig="";
+}
+function helpOff(say){                         // 평상시 키오스크로 되돌리기
+  A.active=false; A.autoClick=false; A.steps=[]; A.doneSteps=[]; A.waiting=null;
+  A.confirmNode=null; A.askHold=null; clearPoint(); renderPlan(); guide("");
+  if(A.listening) $("#micbtn").click();
+  $("#kguide").classList.remove("on"); $("#kguide").setAttribute("aria-pressed","false");
+  $("#kmic").classList.remove("on");   $("#kmic").setAttribute("aria-pressed","false");
+  $("#mguide").classList.remove("on"); $("#mauto").classList.remove("on");
+  setStatus('안내 꺼짐 — 아래 버튼을 누르거나 "키순이" 라고 부르면 켜져요');
+  syncBig();
+  if(say) speak("네, 안내 멈출게요. 필요하시면 아래 버튼을 눌러주세요.");
+}
 /* 글씨 크기 — 보통 → 크게 → 더 크게 → 보통 */
 const ZOOMS=[1,1.18,1.36], ZOOMLBL=["🔍 글씨 크게","🔍 더 크게","🔍 원래대로"];
 let zi=0, autoZoom=false;
@@ -1445,8 +1467,8 @@ function setMode(auto,say){
   setStatus(auto? "말씀하시면 제가 눌러드릴게요" : "뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
   syncBig();
   const kg=$("#kguide"), km2=$("#kmic");   // 두 버튼을 나란히 — 지금 켜진 쪽을 강조
-  if(kg){ kg.classList.toggle("on",!auto); kg.setAttribute("aria-pressed",String(!auto)); }
-  if(km2){ km2.classList.toggle("on",!!auto); km2.setAttribute("aria-pressed",String(!!auto)); }
+  if(kg){ kg.classList.toggle("on",A.active&&!auto); kg.setAttribute("aria-pressed",String(A.active&&!auto)); }
+  if(km2){ km2.classList.toggle("on",A.active&&!!auto); km2.setAttribute("aria-pressed",String(A.active&&!!auto)); }
   if(say) speak(auto? "네, 이제 제가 눌러드릴게요. 불고기버거 포장해서 계산해줘, 이렇게 한 번에 말씀하셔도 돼요."
                     : "네, 누를 곳만 알려드릴게요. 편하게 천천히 눌러보세요.");
 }
@@ -1487,10 +1509,10 @@ function send(){ const v=$("#say").value; $("#say").value=""; heard(v); }
   $("#chips").appendChild(bt);
 });
 
-/* 시작 */
-render(); onEnter("START"); setStatus("뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
+/* 시작 — 평상시 키오스크 그대로. 손님이 아래 버튼을 누르거나 "키순이" 라고 불러야 안내가 켜진다 */
+render(); onEnter("START"); setStatus('안내 꺼짐 — 아래 버튼을 누르거나 "키순이" 라고 부르면 켜져요');
 A.sig=sig();
-log("안내","말은 안 하셔도 됩니다. 화면마다 뭘 누르면 되는지 알려드리고, 누르는 건 직접 하시면 됩니다.");
+log("안내",'평소에는 보통 키오스크입니다. 아래 "말로 주문하기" 나 "내가 누를게요" 를 누르면 안내가 시작됩니다.');
 if(window.speechSynthesis) pickVoices();
 })();
 </script>
