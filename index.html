@@ -1016,6 +1016,13 @@ function tick(){
     A.busy=true; setTimeout(()=>{ A.busy=false; },4500);
     return;
   }
+  // 대신 누르기 모드에서는 광고를 말없이 닫는다 — "괜찮아" 라고 말하게 하지 않는다
+  if(A.autoClick&&K.popup&&/신메뉴/.test(K.popup.title||"")&&A.adSig!==now){
+    const ad=readScreen().find(e=>/광고닫기|^닫기$/.test(norm(btnName(e.el))));
+    if(ad){ A.adSig=now; const nd=ad.el; pointAt(nd); speak("광고를 닫습니다."); A.busy=true;
+      setTimeout(()=>{ if(document.body.contains(nd)) nd.click(); },600);
+      setTimeout(()=>{ A.busy=false; A.sig=sig(); clearPoint(); },900); return; }
+  }
   if(!A.steps.length){ describe(); return; }
   const step=A.steps[0];
   renderPlan();
@@ -1101,7 +1108,7 @@ function popName(){ return ((K.popup&&K.popup.body)||"").split("\n")[0].trim() |
 function describe(){
   if(!A.active) return;
   let t="";
-  if(K.popup&&/신메뉴/.test(K.popup.title)) t="광고가 떴네요.";
+  if(K.popup&&/신메뉴/.test(K.popup.title)) t="";          // 광고는 아래 블록에서 한 번만 말한다
   else if(K.popup&&/세트로/.test(K.popup.title)){
     const n=cartCount();
     if(A.setAskedAt!=null && A.setAskedAt!==n){          // 여러 개 고를 때 두 번째 것부터는 짧게 한 번만
@@ -1156,7 +1163,7 @@ function describe(){
       : "광고예요. 안 보셔도 돼요.";   // 뒤 문장은 모드에 따라 붙는다
     if(close){
       const line=t2+(A.autoClick? " 괜찮아, 하고 말씀하시면 넘어가요." : " '"+btnName(close.el)+"' 눌러보세요.");
-      if(line!==lastDesc){ lastDesc=line; speak(line); }
+      if(line!==lastDesc){ lastDesc=line; A.descAt=Date.now(); speak(line); }
       return;
     }
   }
@@ -1171,7 +1178,7 @@ function describe(){
   const addHint = !!t && A.autoClick && A.batchHint<2 && !K.popup &&
                   (K.screen==="DINE" || (K.screen==="MENU" && cartCount()===0));
   if(addHint) t += " 불고기버거 포장해서 계산해줘, 이렇게 한 번에 말씀하셔도 돼요.";
-  if(t&&t!==lastDesc){ lastDesc=t; if(addHint) A.batchHint++; speak(t); }
+  if(t&&t!==lastDesc){ lastDesc=t; A.descAt=Date.now(); if(addHint) A.batchHint++; speak(t); }
 }
 
 /* 발화 처리 */
@@ -1215,7 +1222,8 @@ function heard(text){
     if(/키돌|기돌|키도리|키돈이|기도리/.test(norm(text)) && V_MALE){A.gender="male";A.persona="키돌이";}
     else {A.gender="female";A.persona="키순이";}
     $("#persona").textContent=A.persona;
-    A.active=true; A.steps=[]; A.doneSteps=[]; A.waiting=null; clearPoint(); lastDesc="";
+    A.active=true; A.steps=[]; A.doneSteps=[]; A.waiting=null; clearPoint();
+    if(Date.now()-(A.descAt||0)>20000) lastDesc="";   // 방금 한 화면 설명을 이름 불렀다고 또 하지 않는다
     setStatus("뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
     speak(`네, ${A.persona}예요. 뭐 누르면 되는지 하나씩 알려드릴게요.`);
     return;
