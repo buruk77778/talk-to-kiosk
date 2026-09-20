@@ -307,7 +307,7 @@ body.dev .kctl{display:none}
   </div>
 
   <div class="foot">
-    <span>미리버거는 시연용 가상 매장입니다. · v0920c-한번만</span>
+    <span>미리버거는 시연용 가상 매장입니다. · v0920d-큰글씨</span>
     <a href="https://github.com/buruk77778/talk-to-kiosk" target="_blank" rel="noopener">실제 키오스크에 붙는 버전 (GitHub)</a>
   </div>
 </div>
@@ -676,7 +676,7 @@ function log(who,txt,cls){
 }
 function setStatus(t){
   $("#astatus").textContent=t; $("#dot").className="dot"+(A.active?" live":"");
-  $("#kiosk").classList.toggle("assisted",helpOn());   // 말로 주문하기·대신 눌러주세요 를 켰을 때만 큰 글씨
+  $("#kiosk").classList.toggle("assisted",helpOn());   // 안내를 켠 손님에게만 큰 글씨
 }
 function guide(say,step){
   if(say) $("#guidesay").textContent=say;
@@ -1955,8 +1955,10 @@ function helpOff(say){                         // 평상시 키오스크로 되�
 /* 글씨 크기 — 보통 → 크게 → 더 크게 → 보통 */
 const ZOOMS=[1,1.18,1.36], ZOOMLBL=["🔍 글씨 크게","🔍 더 크게","🔍 원래대로"];
 let zi=0, autoZoom=false;
-/* 도움이 필요한 분(말로 주문하기 / 대신 눌러주세요)일 때만 자동으로 글씨를 키운다. 일반 손님은 보통 크기. */
-function helpOn(){ return !!(A.active && (A.listening || A.autoClick)); }
+/* 손님이 도움을 켰을 때(말로 주문하기 · 내가 누를게요 · "키순이" 부르기) 글씨를 키운다. 안내가 꺼져 있는 일반 손님은 보통 크기.
+   예전엔 안내가 처음부터 늘 켜져 있어서(모든 손님) 마이크·대신 누르기일 때만 키웠다. 지금은 안내 자체를 손님이 켜는 것이므로
+   켜져 있으면 곧 도움이 필요한 분이다 — 그 조건이 남아 있어서 "내가 누를게요" 를 먼저 누르면 글씨가 안 커졌다. */
+function helpOn(){ return !!A.active; }
 function syncBig(){
   const on=helpOn();
   if(on && zi===0){ zi=1; autoZoom=true; applyZoom(); }
