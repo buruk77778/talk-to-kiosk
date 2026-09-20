@@ -281,6 +281,8 @@ body.dev .kctl{display:none}
         <button id="micbtn">🎤 말하기</button>
         <button class="ghost" id="mutebtn">🔈 소리 끄기</button>
         <button class="ghost" id="resetbtn">처음부터</button>
+        <button class="ghost" id="logcopy" title="지금까지의 로그를 클립보드에 복사">📋 로그 복사</button>
+        <button class="ghost" id="logsave" title="로그를 파일로 저장 (Ctrl+Shift+L)">💾 로그 저장</button>
         <button class="ghost" id="newtab" hidden>↗ 새 탭에서 열기 (마이크)</button>
         <span class="hint" id="michint">말은 안 하셔도 됩니다 — 화면마다 뭘 누르면 되는지 알려드려요. 말로 시키고 싶으면 마이크를 켜거나 아래에 타이핑하세요(그래도 누르는 건 직접).</span>
       </div>
@@ -305,7 +307,7 @@ body.dev .kctl{display:none}
   </div>
 
   <div class="foot">
-    <span>미리버거는 시연용 가상 매장입니다. · v0920-되듣기</span>
+    <span>미리버거는 시연용 가상 매장입니다. · v0920b-이전</span>
     <a href="https://github.com/buruk77778/talk-to-kiosk" target="_blank" rel="noopener">실제 키오스크에 붙는 버전 (GitHub)</a>
   </div>
 </div>
@@ -624,13 +626,42 @@ setInterval(()=>{
   updateTimerBar();
 },1000);
 $("#kiosk").addEventListener("pointerdown",touch);
+$("#kiosk").addEventListener("click",e=>{ const bt=e.target&&e.target.closest&&e.target.closest("button"); if(bt&&e.isTrusted) dlog("손님이 누름",btnName(bt)); },true);
 
 /* ─────────────── 어시스트 ─────────────── */
 const A={active:false,persona:"키순이",gender:"female",steps:[],doneSteps:[],busy:false,muted:false,listening:false,lastSay:"",retry:0,
          waiting:null,sig:"",autoClick:false,batchHint:0};
 const logbox=$("#log"), planbox=$("#plan");
 
+/* 로그를 파일로 남긴다 — serve.bat(serve.py) 로 열었을 때만 ../logs/web_log.txt 에 쌓인다.
+   배포 페이지에서는 아무 데도 보내지 않고 메모리에만 둔다 (Ctrl+Shift+L 로 파일 저장, ?dev=1 화면의 '로그 복사'). */
+const FLOG={on:/^(localhost|127\.0\.0\.1)$/.test(location.hostname), dead:false, buf:[], all:[], timer:null};
+function flogTs(){ const d=new Date(); return d.toTimeString().slice(0,8)+"."+String(d.getMilliseconds()).padStart(3,"0"); }
+function dlog(who,txt){                 // 파일·메모리에만 남는 자세한 기록 (화면 로그에는 안 보임)
+  const line="["+flogTs()+"] "+who+": "+txt;
+  FLOG.all.push(line); if(FLOG.all.length>4000) FLOG.all.splice(0,500);
+  if(!FLOG.on||FLOG.dead) return;
+  FLOG.buf.push(line);
+  if(!FLOG.timer) FLOG.timer=setTimeout(flushLog,600);
+}
+function flushLog(){
+  FLOG.timer=null; if(!FLOG.buf.length) return;
+  const body=FLOG.buf.join("\n")+"\n"; FLOG.buf=[];
+  try{ fetch("/log",{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body,keepalive:true})
+         .then(r=>{ if(!r.ok) FLOG.dead=true; }).catch(()=>{ FLOG.dead=true; }); }catch(_){ FLOG.dead=true; }
+}
+function saveLogFile(){
+  const d=new Date(), p2=x=>String(x).padStart(2,"0");
+  const name="kisooni_log_"+d.getFullYear()+p2(d.getMonth()+1)+p2(d.getDate())+"_"+p2(d.getHours())+p2(d.getMinutes())+p2(d.getSeconds())+".txt";
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([FLOG.all.join("\n")+"\n"],{type:"text/plain;charset=utf-8"}));
+  a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },500);
+}
+window.addEventListener("error",e=>{ try{ dlog("오류",(e.message||"")+" @"+(e.filename||"").split("/").pop()+":"+e.lineno); }catch(_){} });
+window.addEventListener("unhandledrejection",e=>{ try{ dlog("오류","약속 거부: "+String((e.reason&&e.reason.message)||e.reason)); }catch(_){} });
+window.addEventListener("pagehide",()=>{ try{ if(FLOG.on&&!FLOG.dead&&FLOG.buf.length&&navigator.sendBeacon) navigator.sendBeacon("/log",FLOG.buf.join("\n")+"\n"); }catch(_){} });
+document.addEventListener("keydown",e=>{ if(e.ctrlKey&&e.shiftKey&&(e.key==="L"||e.key==="l")){ e.preventDefault(); saveLogFile(); } });
 function log(who,txt,cls){
+  dlog(who,txt);
   const l=el("div","line "+(cls||""));
   l.appendChild(el("span","who",who));
   l.appendChild(el("span","txt",txt));
@@ -701,7 +732,9 @@ function speak(text){
   }catch(e){ speaking=false; micResume(); }
 }
 function planLabel(){ return A.steps.length? "남은 순서: "+A.steps.join(" → ") : ""; }
+let lastPlanLog="";
 function renderPlan(){
+  { const pl=A.doneSteps.map(x=>"✓"+x).concat(A.steps).join(" → "); if(pl!==lastPlanLog){ lastPlanLog=pl; dlog("순서",pl||"(비었음)"); } }
   planbox.innerHTML="";
   A.doneSteps.forEach(s=>planbox.appendChild(el("span","p done",s)));
   A.steps.forEach((s,i)=>planbox.appendChild(el("span","p"+(i===0?" now":""),s)));
@@ -792,7 +825,7 @@ async function aiCall(model, system, parts, ms, think){
   finally{ clearTimeout(tm); }
 }
 /* opts.audio = base64 WAV — 소리를 같이 보낸다. 소리 경로의 실패는 AI 전체 실패로 세지 않는다. */
-async function aiJSON(system, user, ms=6000, opts){
+async function aiJSON(system, user, ms=4500, opts){   // 보통 0.7~1.2초 — 4.5초를 넘기면 그 모델은 지금 붐비는 것이므로 다음 모델로
   opts=opts||{};
   const parts = opts.audio ? [{inline_data:{mime_type:"audio/wav",data:opts.audio}},{text:user}] : [{text:user}];
   const t0=Date.now(), budget=opts.audio? 7000 : 9000;
@@ -807,14 +840,15 @@ async function aiJSON(system, user, ms=6000, opts){
     }
     if(r.ok){
       if(!opts.audio){ AI.model=model; AI.name="AI 판단 · "+model; AI.fails=0; }
+      dlog("AI응답",(opts.audio?"[소리] ":"")+model+" "+(Date.now()-t0)+"ms "+JSON.stringify(r.data));
       return r.data;
     }
     last=((r.status?"HTTP "+r.status+" ":"")+(r.msg||"")).trim().slice(0,70);
     AI.lastErr={status:r.status,msg:r.msg};
     if(AI.key && !AI.switched && (r.status===401||r.status===403||/API key/i.test(r.msg))){ aiUseProxy(); return aiJSON(system,user,ms,opts); }
     if(r.status===413) break;                          // 본문이 너무 큼 — 모델을 바꿔도 소용없다
-    // 없는·막힌 모델은 1시간, 붐빔·한도·시간초과는 1분 쉬게 하고 다음 모델로
-    AI.bad[model]=Date.now()+((r.status===404||r.status===400)?3600e3:60e3);
+    // 없는·막힌 모델은 1시간, 붐빔·한도는 1분, 시간초과(잠깐 느린 것)는 20초 쉬게 하고 다음 모델로
+    AI.bad[model]=Date.now()+((r.status===404||r.status===400)?3600e3:(r.status===0?20e3:60e3));
     log("AI",`${model} 안 됨 (${last}) — 다음 모델로`);
   }
   if(opts.audio) return null;
@@ -863,6 +897,7 @@ const AI_SYSTEM=`어르신이 패스트푸드 키오스크 앞에서 한 말을 
 {"steps": ["단계", "단계"]}
 
 추가 규칙 (웹 체험판):
+- "이전", "뒤로", "취소", "닫아", "처음으로"처럼 화면을 조작하는 말이면 [지금 보이는 버튼]에서 그 일을 하는 버튼 이름을 steps 에 넣습니다 (예: "이전으로 돌아가줘" → ["이전"]). say 에 "갈게요"라고만 하고 steps 를 비우면 아무 일도 일어나지 않습니다. 그런 버튼이 화면에 없을 때만 steps 를 비우고 say 로 알려주세요.
 - [메뉴 목록]과 [지금 보이는 버튼]에 있는 이름을 그대로 씁니다.
 - 질문이거나(뭐가 싸요, 매운 거 있어요, 얼마예요) 주문이 아니면 steps 는 빈 배열로 두고, say 에 [메뉴 목록]을 근거로 두 문장 이내로 답합니다.
 - 주문이면 say 는 짧은 한마디("네, 불고기버거 포장으로 할게요.")로 씁니다. 짧고 쉬운 존댓말.
@@ -974,6 +1009,27 @@ function splitSteps(utt){
   return steps;
 }
 
+/* 화면 조작 말(이전·처음으로)은 AI 에게 묻지 않고 규칙으로 바로 처리한다.
+   실측: AI 는 "이전 화면으로 갈게요" 라고 말만 하고 누를 단계(steps)는 비워 보내는 일이 잦다 → 말만 하고 안 눌림.
+   누를 버튼이 정해져 있는 말은 규칙이 더 빠르고 확실하다. */
+const BACK_WORD=/이전|뒤로|돌아가|되돌|전화면|전단계|전으로|아까화면/;
+const HOME_WORD=/처음으로|처음부터|처음화면|첫화면|맨처음/;
+function litButton(n){                  // 그 말 그대로의 버튼이 화면에 있나 (예: 팝업의 '돌아가기')
+  try{ return readScreen().find(e=>{ const x=norm(btnName(e.el)); return x.length>=2 && (x===n || n.includes(x) || (n.length>=3&&x.includes(n))); })||null; }catch(_){ return null; }
+}
+function localControl(t){
+  const n=norm(t); if(!n||n.length>16||MENU_WORD.test(n)) return null;   // 주문이 섞인 말은 AI 가 본다
+  const home=HOME_WORD.test(n), back=!home&&BACK_WORD.test(n);
+  if(!home&&!back) return null;
+  // "이전으로 가서 포장으로 바꿔줘" 처럼 다른 부탁이 섞였으면 AI 가 통째로 본다 — 여기서는 되돌아가자는 말뿐일 때만
+  const rest=n.replace(/이전|뒤로|되?돌아가기?|되돌려?|전화면|전단계|전으로|아까화면|처음으로|처음부터|처음화면|첫화면|맨처음/g,"")
+              .replace(/화면|으로|에서|로|가줘|가자|가요|갈래|갈게|가고|가|해줘|해|줘|주세요|줄래|좀|다시|싶어|요|어|아/g,"");
+  if(rest.length>2) return null;
+  const lit=litButton(n), ln=lit? btnName(lit.el) : "";
+  if(lit && !/^(이전|처음으로)$/.test(norm(ln))) return ln;     // 화면에 있는 그 버튼을 누르라는 뜻 — 조작 말로 바꾸지 않는다
+  return home? "처음으로" : "이전";
+}
+
 /* 한 단계 → 이 화면에서 누를 버튼 */
 const OPTIONAL=new Set(["괜찮아요","적립 안 함","담기"]);
 const RULES=[
@@ -1006,6 +1062,32 @@ function planStep(step){
   if(AI.alias[step]){                                   // AI 가 이 화면에서 골라준 버튼
     const e=els.find(x=>btnName(x.el)===AI.alias[step]);
     if(e) return {node:e.el,say:`'${AI.alias[step]}' 누를게요.`};
+  }
+  // ── 처음으로 — 이 화면에 그 버튼이 있을 때만. 없는데 남겨두면 나중 화면에서 느닷없이 눌린다 ──
+  if(HOME_WORD.test(n)&&!MENU_WORD.test(n)){
+    let e=find(els,"^처음으로$");
+    if(!e&&K.popup&&/처음으로/.test(K.popup.title||"")) e=find(els,"^돌아가기");   // 확인 창에서 또 "처음으로" — 그 창의 '돌아가기' (누르기 전에 되묻는다)
+    if(e) return {node:e.el,say:"처음으로 돌아갈게요."};
+    return {say: find(els,"^이전$")? "이 화면에는 '처음으로' 버튼이 없어요. '이전'이라고 말씀하시면 앞 화면으로 가요."
+                                  : "이 화면에는 '처음으로' 버튼이 없네요.", drop:true};
+  }
+  // ── 이전 — '이전' 버튼, 없으면 그 화면에서 되돌아가는 버튼(팝업의 취소·닫기, 장바구니의 더 담기) ──
+  if(BACK_WORD.test(n)&&!MENU_WORD.test(n)){
+    const lit=litButton(n);
+    if(!lit || /^이전$/.test(norm(btnName(lit.el)))){
+      let e=find(els,"^이전$"), say="이전 화면으로 갈게요.";
+      if(!e&&K.popup){ e=find(els,"^취소|광고닫기|^닫기"); say="이 창은 닫을게요."; }
+      if(!e&&!K.popup&&K.screen==="CART"){ e=find(els,"^더담기$"); say="메뉴 화면으로 돌아갈게요."; }
+      if(e) return {node:e.el,say};
+      return {say: K.screen==="START"? "여기가 첫 화면이에요."
+                 : (K.screen==="MENU"&&!K.popup)? "이 화면에는 '이전' 버튼이 없어요. 먹는 곳부터 다시 고르시려면 '처음으로'라고 말씀해주세요."
+                 : "이 화면에는 '이전' 버튼이 없네요.", drop:true};
+    }
+  }
+  // ── 팝업에서 "취소 / 아니 / 다른 거" — 그 창의 '취소'를 누른다 (세트 팝업에서도 말로 빠져나올 수 있게) ──
+  if(K.popup&&/^(취소|아니|아니요|아냐|아니야|다른|바꿀|말고)/.test(n)&&!/세트|단품/.test(n)){
+    const e=find(els,"^취소");
+    if(e) return {node:e.el,say:"네, 이 창은 닫을게요."};
   }
   // 광고 팝업은 무조건 먼저 닫는다
   if(K.popup&&/신메뉴/.test(K.popup.title)){
@@ -1084,7 +1166,7 @@ function tick(){
     const base=K.screen+"|"+(K.popup?K.popup.title:"")+"|"+K.payStep;
     if(base!==A.sigBase){ A.sigBase=base; lastDesc=""; }
     if(K.screen!=="MENU"){ A.menuSaid=false; A.setAskedAt=null; A.setShortAt=null; }
-    A.sig=now;
+    A.sig=now; dlog("화면",now+"  버튼=["+readScreen().map(e=>btnName(e.el)).filter(Boolean).slice(0,14).join(", ")+"]");
 
     if(A.waiting){
       if(A.waiting.consume){ A.steps.shift(); A.doneSteps.push(A.waiting.step); }
@@ -1147,6 +1229,11 @@ function tick(){
     return;
   }
   A.retry=0;
+  if(r.drop){                            // 이 화면에서는 할 수 없는 말 — 알려드리고 그 단계는 끝낸다
+    A.steps.shift(); renderPlan(); speak(r.say);
+    A.busy=true; setTimeout(()=>{ A.busy=false; }, Math.min(1200+r.say.length*110, 5000));
+    return;
+  }
   if(r.ask){                             // 손님이 정할 것 — 남은 순서는 그대로 두고 대답(또는 직접 누름)을 기다린다
     speak(r.say); A.askHold=A.sig; A.askCart=cartCount(); renderPlan(); return; }
   pointAt(r.node);
@@ -1165,7 +1252,7 @@ function tick(){
     A.waiting=null;
     if(!r.keep){ A.steps.shift(); A.doneSteps.push(step); renderPlan(); }
     A.busy=true;
-    setTimeout(()=>{ if(A.autoClick&&document.body.contains(nd)) nd.click(); },fast?120:650);
+    setTimeout(()=>{ if(A.autoClick&&document.body.contains(nd)){ dlog("누름",btnName(nd)+"  (단계: "+step+")"); nd.click(); } else dlog("누름취소",btnName(nd)+" — 모드가 바뀌었거나 버튼이 사라짐"); },fast?120:650);
     setTimeout(()=>{ A.busy=false; A.sig=sig(); clearPoint(); },fast?320:1000);
   }else{
     { const bn=btnName(r.node);
@@ -1613,6 +1700,8 @@ function heard(text, meta){
     }
   }
   A.waiting=null; clearPoint();
+  { const ctl=localControl(text);                      // "이전" · "처음으로" — 규칙으로 바로 (AI 를 기다리지 않는다)
+    if(ctl){ log("어시스트",`'${text}' → '${ctl}' (화면 조작 말 — 규칙으로 바로 처리)`); applySteps(text,[ctl],true); return; } }
   if(meta.ai){ applyAI(text, meta.ai); return; }       // 소리를 들은 AI 가 판단까지 끝냈다 — 다시 묻지 않는다
   if(AI.ready && !A.busy){
     A.busy=true; setStatus("생각 중…");
@@ -1625,6 +1714,16 @@ function heard(text, meta){
 function applyAI(text,res){
   A.sig=sig();
   if(!res){ applySteps(text, splitSteps(text)); return; }
+  if(!res.steps.length){
+    const nq=norm(text);
+    if(nq.length<=14 && !ASKW.test(nq)){             // "갈게요" 말만 하고 순서를 안 준 경우 — 규칙으로 지금 누를 버튼이 나오면 그대로 한다
+      let dry=null; try{ dry=planStep(text); }catch(_){}
+      if(dry && dry.node && !dry.keep && !dry.ask){
+        log("AI","순서를 안 줬지만 이 화면에서 바로 되는 말 — 규칙으로 처리합니다");
+        applySteps(text,[text],true); return;
+      }
+    }
+  }
   if(!res.steps.length){                         // 질문·잡담 → 대답만 (대답이 끝날 때까지 다른 안내는 쉰다)
     const ans=res.say || "잘 못 알아들었어요. 다시 한 번 말씀해주세요.";
     speak(ans); A.busy=true; setTimeout(()=>{ A.busy=false; }, Math.min(1500+ans.length*110, 6000));
@@ -1668,7 +1767,7 @@ function applySteps(text, steps, quiet){
   const fresh = steps.length? steps : [text];
   const DINE=/^(매장에서 먹기|포장하기|매장|포장)$/;
   const PAYS=/^(계산|결제|결제하기)$/;
-  if(A.steps.length && !RESET_WORD.test(norm(text))){
+  if(A.steps.length && !RESET_WORD.test(norm(text)) && !localControl(text)){   // "이전"·"처음으로" 는 하던 순서를 접고 그것부터
     /* 앞 주문이 아직 남아 있는데 또 말씀하셨다 — 덮어쓰지 않고 이어 붙인다.
        (성격 급하신 분이 안내 도중에 계속 얹어도 앞말이 사라지지 않게) */
     const had=new Set(A.doneSteps.concat(A.steps));
@@ -1745,6 +1844,7 @@ if(!SR){
       const r=e.results[i];
       if(r.isFinal){
         const alts=[]; for(let k=0;k<r.length;k++) alts.push((r[k]||{}).transcript||"");
+        dlog("인식기","확정 ["+alts.join(" | ")+"] 확신="+(((r[0]||{}).confidence||0).toFixed(2))+(speaking?" (안내 읽는 중)":""));
         pushHeard(pickAlt(alts), alts, (r[0]||{}).confidence||0);
       }
       else interim+=r[0].transcript;
@@ -1873,6 +1973,9 @@ $("#resetbtn").addEventListener("click",()=>{
   lastDesc=""; setStatus("뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
   resetAll(); A.sig=sig();
 });
+$("#logsave").addEventListener("click",saveLogFile);
+$("#logcopy").addEventListener("click",()=>{ const t=FLOG.all.join("\n"); const done=()=>{ $("#logcopy").textContent="✅ 복사됨"; setTimeout(()=>{ $("#logcopy").textContent="📋 로그 복사"; },1500); };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done).catch(saveLogFile); else saveLogFile(); });
 $("#sendbtn").addEventListener("click",send);
 $("#say").addEventListener("keydown",e=>{ if(e.key==="Enter") send(); });
 function send(){ const v=$("#say").value; $("#say").value=""; heard(v); }
@@ -1899,6 +2002,8 @@ function send(){ const v=$("#say").value; $("#say").value=""; heard(v); }
 /* 시작 — 평상시 키오스크 그대로. 손님이 아래 버튼을 누르거나 "키순이" 라고 불러야 안내가 켜진다 */
 render(); onEnter("START"); setStatus('안내 꺼짐 — 아래 버튼을 누르거나 "키순이" 라고 부르면 켜져요');
 A.sig=sig();
+dlog("세션","──────── 시작 "+new Date().toLocaleString("ko-KR")+" · "+((document.querySelector(".foot span")||{}).textContent||"").split("·").pop().trim()
+     +" · AI="+(AI.key?"직접 키":AI.proxy?"중계 서버":"없음(규칙)")+" · 되듣기="+(AUD_ALLOWED?"가능":"꺼짐")+" · "+navigator.userAgent.replace(/^.*?\)\s*/,"").slice(0,60));
 log("안내",'평소에는 보통 키오스크입니다. 아래 "말로 주문하기" 나 "내가 누를게요" 를 누르면 안내가 시작됩니다.');
 if(window.speechSynthesis) pickVoices();
 if(document.body.classList.contains("dev")) window.__k={A,AI,AUD,K,heard,audPush,audWavB64,audTrim,localSense,snapWord,fixHeard,aiHearAudio,aiUnderstand,aiJSON,aiPick};
