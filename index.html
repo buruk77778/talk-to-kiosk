@@ -307,7 +307,7 @@ body.dev .kctl{display:none}
   </div>
 
   <div class="foot">
-    <span>미리버거는 시연용 가상 매장입니다. · v0920b-이전</span>
+    <span>미리버거는 시연용 가상 매장입니다. · v0920c-한번만</span>
     <a href="https://github.com/buruk77778/talk-to-kiosk" target="_blank" rel="noopener">실제 키오스크에 붙는 버전 (GitHub)</a>
   </div>
 </div>
@@ -632,6 +632,13 @@ $("#kiosk").addEventListener("click",e=>{ const bt=e.target&&e.target.closest&&e
 const A={active:false,persona:"키순이",gender:"female",steps:[],doneSteps:[],busy:false,muted:false,listening:false,lastSay:"",retry:0,
          waiting:null,sig:"",autoClick:false,batchHint:0};
 const logbox=$("#log"), planbox=$("#plan");
+/* 말하는 동안·누르는 동안·AI 를 기다리는 동안 안내 루프(tick)를 쉬게 한다(A.busy).
+   쉼마다 번호표를 줘서, 먼저 건 타이머가 나중에 건 쉼을 풀어버리지 못하게 한다
+   (예전엔 앞 동작의 1초 타이머가 뒤따라온 AI 대기를 풀어버려, 화면 설명이 대답 위에 겹쳐 또 나왔다). */
+A.busyId=0;
+function holdBusy(){ A.busy=true; return ++A.busyId; }
+function freeBusy(id){ if(A.busyId===id) A.busy=false; }
+function busyFor(ms,fn){ const id=holdBusy(); setTimeout(()=>{ if(fn) fn(); freeBusy(id); },ms); }
 
 /* 로그를 파일로 남긴다 — serve.bat(serve.py) 로 열었을 때만 ../logs/web_log.txt 에 쌓인다.
    배포 페이지에서는 아무 데도 보내지 않고 메모리에만 둔다 (Ctrl+Shift+L 로 파일 저장, ?dev=1 화면의 '로그 복사'). */
@@ -1017,6 +1024,12 @@ const HOME_WORD=/처음으로|처음부터|처음화면|첫화면|맨처음/;
 function litButton(n){                  // 그 말 그대로의 버튼이 화면에 있나 (예: 팝업의 '돌아가기')
   try{ return readScreen().find(e=>{ const x=norm(btnName(e.el)); return x.length>=2 && (x===n || n.includes(x) || (n.length>=3&&x.includes(n))); })||null; }catch(_){ return null; }
 }
+const ITEM_WORD=new RegExp(MENU_WORD.source.replace(/\|세트$/,""));     // 메뉴 이름(세트·단품 같은 고르는 말은 뺌)
+function quickRule(t){                  // 짧은 조작 말이고, 규칙으로 지금 누를 버튼이 딱 정해지는가
+  const n=norm(t); if(!n||n.length>8||ITEM_WORD.test(n)||ASKW.test(n)) return false;
+  let r=null; try{ r=planStep(t); }catch(_){}
+  return !!(r&&r.node&&!r.keep&&!r.ask&&!r.drop);
+}
 function localControl(t){
   const n=norm(t); if(!n||n.length>16||MENU_WORD.test(n)) return null;   // 주문이 섞인 말은 AI 가 본다
   const home=HOME_WORD.test(n), back=!home&&BACK_WORD.test(n);
@@ -1199,7 +1212,7 @@ function tick(){
     speak(`다 누르셨네요. ${sp(p.slice(0,3))}, ${sp(p.slice(3,7))}, ${sp(p.slice(7))}. 이 번호가 맞으면 `
       +(A.autoClick? "'확인'이라고 말씀해주세요." : "'확인'을 눌러주세요.")
       +" 틀렸으면 '지우기'로 고치시면 돼요.");
-    A.busy=true; setTimeout(()=>{ A.busy=false; },4500);
+    busyFor(4500);
     return;
   }
   // 먹는 곳 화면 — 못 알아들은 말이 앞에 끼어 있어도 '매장/포장' 단계가 뒤에 있으면 그것부터 처리한다
@@ -1213,8 +1226,8 @@ function tick(){
   const r=planStep(step);
   if(!r && AI.ready && !AI.asked.has(K.screen+"|"+step) && !/^[0-9]$/.test(step)){
     AI.asked.add(K.screen+"|"+step);
-    A.busy=true;
-    aiPickButton(step).then(hit=>{ if(hit) AI.alias[step]=hit; }).finally(()=>{ A.busy=false; });
+    const bid=holdBusy();
+    aiPickButton(step).then(hit=>{ if(hit) AI.alias[step]=hit; }).finally(()=>{ freeBusy(bid); });
     return;
   }
   if(!r){
@@ -1231,7 +1244,7 @@ function tick(){
   A.retry=0;
   if(r.drop){                            // 이 화면에서는 할 수 없는 말 — 알려드리고 그 단계는 끝낸다
     A.steps.shift(); renderPlan(); speak(r.say);
-    A.busy=true; setTimeout(()=>{ A.busy=false; }, Math.min(1200+r.say.length*110, 5000));
+    busyFor(Math.min(1200+r.say.length*110, 5000));
     return;
   }
   if(r.ask){                             // 손님이 정할 것 — 남은 순서는 그대로 두고 대답(또는 직접 누름)을 기다린다
@@ -1251,9 +1264,9 @@ function tick(){
     const nd=r.node;
     A.waiting=null;
     if(!r.keep){ A.steps.shift(); A.doneSteps.push(step); renderPlan(); }
-    A.busy=true;
+    const bid=holdBusy();
     setTimeout(()=>{ if(A.autoClick&&document.body.contains(nd)){ dlog("누름",btnName(nd)+"  (단계: "+step+")"); nd.click(); } else dlog("누름취소",btnName(nd)+" — 모드가 바뀌었거나 버튼이 사라짐"); },fast?120:650);
-    setTimeout(()=>{ A.busy=false; A.sig=sig(); clearPoint(); },fast?320:1000);
+    setTimeout(()=>{ A.sig=sig(); clearPoint(); freeBusy(bid); },fast?320:1000);
   }else{
     { const bn=btnName(r.node);
       speak(/터치/.test(bn) ? "화면 아무 데나 한 번 눌러보세요."
@@ -1369,11 +1382,15 @@ function describe(){
     const opt=optionsSay();
     if(opt) t = t? (t+" "+opt) : opt;
   }
-  // 말로 시키는 모드: 한 번에 다 말해도 된다는 걸 주문 초반에 두 번까지 알려준다
-  const addHint = !!t && A.autoClick && A.batchHint<2 && !K.popup &&
+  // 말로 시키는 모드: 한 번에 다 말해도 된다는 걸 주문 초반에 한 번 알려준다 (두 번은 되풀이로 들린다)
+  const addHint = !!t && A.autoClick && A.batchHint<1 && !K.popup &&
                   (K.screen==="DINE" || (K.screen==="MENU" && cartCount()===0));
+  /* 되풀이 여부는 '덧붙인 안내를 뺀' 본문으로 견준다.
+     예전엔 안내를 붙인 문장을 기억해 둬서, 0.45초 뒤 안내가 빠진 같은 설명을 "새 말"로 보고 처음부터 또 읽었다
+     (앞 문장을 끊고 다시 시작 — 같은 화면 설명이 두 번 들리던 원인). */
+  const base=t;
   if(addHint) t += " 불고기버거 포장해서 계산해줘, 이렇게 한 번에 말씀하셔도 돼요.";
-  if(t&&t!==lastDesc){ lastDesc=t; A.descAt=Date.now(); if(addHint) A.batchHint++; speak(t); }
+  if(base&&base!==lastDesc){ lastDesc=base; A.descAt=Date.now(); if(addHint) A.batchHint++; speak(t); }
 }
 
 /* 발화 처리 */
@@ -1592,13 +1609,14 @@ function localSense(t){
   try{ const vis=readScreen().map(e=>norm(btnName(e.el))).filter(x=>x.length>1);
        if(vis.some(x=>n.includes(x)||x.includes(n))) return true; }catch(_){}
   if(n.length>=2 && ALL_ITEMS.some(it=>norm(it.name).includes(n))) return true;       // "불고기" 처럼 메뉴 이름의 일부
+  if(quickRule(t)) return true;                        // "시작" 처럼 규칙으로 지금 누를 버튼이 정해지는 말 — 되들을 필요 없다
   return false;
 }
 let HSEQ=0, lastReask=0;
 function heard(text, meta){
   text=(text||"").trim(); if(!text) return;
   meta=meta||{};
-  cutSpeech(); A.busy=false;              // 안내 중이라도 손님 말이 먼저다 (성격 급하신 분)
+  cutSpeech(); A.busy=false; A.busyId++;  // 안내 중이라도 손님 말이 먼저다 (성격 급하신 분) — 앞서 걸어둔 쉼 타이머는 무효
   const seq=++HSEQ;
   if(!meta.fixed){
     log("어르신",text+((meta.conf&&document.body.classList.contains("dev"))? "  ("+Math.round(meta.conf*100)+"%)" : ""),"user");
@@ -1607,11 +1625,11 @@ function heard(text, meta){
     if(meta.clip && AI.ready && audUsable() && !localSense(text)){
       const b64=audWavB64(meta.clip.from, meta.clip.to);
       if(b64){
-        A.busy=true; setStatus("다시 들어보는 중…");
+        const bid=holdBusy(); setStatus("다시 들어보는 중…");
         log("어시스트",`'${text}' — 이 화면에서 나올 말이 아니라서 소리를 다시 들어봅니다`);
         aiHearAudio(text,b64,meta.alts).then(res=>{
           if(seq!==HSEQ) return;                        // 그 사이 다른 말씀을 하셨다 — 새 말이 우선
-          A.busy=false;
+          freeBusy(bid);
           if(res && res.heard && norm(res.heard).length>=6 && norm(ttsText(A.lastSay||"")).includes(norm(res.heard))) res.heard="";   // 어시스트 목소리를 받아쓴 것
           if(res && res.heard){
             if(norm(res.heard)!==norm(text)) log("어시스트",`다시 들어보니 '${res.heard}' 라고 하셨네요`);
@@ -1621,7 +1639,7 @@ function heard(text, meta){
             setStatus("잘 못 들었어요 — 다시 말씀해주세요");
             if(Date.now()-lastReask>8000){ lastReask=Date.now(); speak("잘 못 들었어요. 다시 한 번 말씀해주시겠어요?"); }
           }else heard(text,{fixed:true, alts:meta.alts});   // 소리 경로가 안 됐다 — 원래 하던 대로
-        }).catch(()=>{ if(seq===HSEQ){ A.busy=false; heard(text,{fixed:true, alts:meta.alts}); } });
+        }).catch(()=>{ if(seq===HSEQ){ freeBusy(bid); heard(text,{fixed:true, alts:meta.alts}); } });
         return;
       }
     }
@@ -1632,9 +1650,9 @@ function heard(text, meta){
     if(/^(네|예|응|어|그래|맞아|맞아요|맞습니다|좋아|좋아요|확인|눌러|눌러줘|해줘|오케)/.test(nn)){
       A.confirmNode=null; A.confirmStep=null; A.askHold=null;
       if(consume&&A.steps[0]===st){ A.steps.shift(); A.doneSteps.push(st); renderPlan(); }
-      speak("네, 누를게요."); A.busy=true;
-      setTimeout(()=>{ if(document.body.contains(nd)) nd.click(); },500);
-      setTimeout(()=>{ A.busy=false; A.sig=sig(); clearPoint(); },1000);
+      speak("네, 누를게요."); const bid=holdBusy();
+      setTimeout(()=>{ if(document.body.contains(nd)){ dlog("누름",btnName(nd)+"  (확인받고)"); nd.click(); } },500);
+      setTimeout(()=>{ A.sig=sig(); clearPoint(); freeBusy(bid); },1000);
       return;
     }
     if(/^(아니|아뇨|아녀|안눌러|안돼|취소|잠깐|기다려|다른)/.test(nn)){
@@ -1702,11 +1720,15 @@ function heard(text, meta){
   A.waiting=null; clearPoint();
   { const ctl=localControl(text);                      // "이전" · "처음으로" — 규칙으로 바로 (AI 를 기다리지 않는다)
     if(ctl){ log("어시스트",`'${text}' → '${ctl}' (화면 조작 말 — 규칙으로 바로 처리)`); applySteps(text,[ctl],true); return; } }
+  if(!meta.ai && quickRule(text)){                     // "닫아"·"포장"·"확인"·"시작할게" — 이 화면에서 누를 버튼이 바로 정해지는 짧은 말
+    log("어시스트",`'${text}' — 이 화면에서 바로 되는 말 (규칙으로 처리, AI 를 기다리지 않음)`);
+    applySteps(text,[text],true); return;
+  }
   if(meta.ai){ applyAI(text, meta.ai); return; }       // 소리를 들은 AI 가 판단까지 끝냈다 — 다시 묻지 않는다
   if(AI.ready && !A.busy){
-    A.busy=true; setStatus("생각 중…");
-    aiUnderstand(text, meta.alts).then(res=>{ A.busy=false; applyAI(text,res); })
-                                 .catch(()=>{ A.busy=false; applyAI(text,null); });      // 어떤 오류가 나도 멈춰 서지 않는다
+    const bid=holdBusy(); setStatus("생각 중…");
+    aiUnderstand(text, meta.alts).then(res=>{ freeBusy(bid); applyAI(text,res); })
+                                 .catch(()=>{ freeBusy(bid); applyAI(text,null); });     // 어떤 오류가 나도 멈춰 서지 않는다
     return;
   }
   applySteps(text, splitSteps(text));
@@ -1726,11 +1748,14 @@ function applyAI(text,res){
   }
   if(!res.steps.length){                         // 질문·잡담 → 대답만 (대답이 끝날 때까지 다른 안내는 쉰다)
     const ans=res.say || "잘 못 알아들었어요. 다시 한 번 말씀해주세요.";
-    speak(ans); A.busy=true; setTimeout(()=>{ A.busy=false; }, Math.min(1500+ans.length*110, 6000));
+    speak(ans); busyFor(Math.min(1500+ans.length*110, 6000));
     setStatus(A.autoClick? "말씀하시면 제가 눌러드릴게요" : "뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
     return;
   }
-  if(res.say){ speak(res.say); A.busy=true; setTimeout(()=>{ A.busy=false; applySteps(text,res.steps,true); }, Math.min(1200+res.say.length*110, 4500)); }
+  /* 한 단계짜리("닫아" → 광고 닫기)는 누르면서 어차피 "광고를 닫습니다" 라고 말한다.
+     거기에 AI 의 "네, 광고를 닫을게요" 까지 얹으면 같은 말을 두 번 듣고 2~3초 늦어진다(로그로 확인).
+     여러 단계 주문일 때만 "네, 불고기버거 포장으로 할게요" 처럼 알아들은 내용을 한 번 되짚어 준다. */
+  if(res.say && res.steps.length>1){ speak(res.say); busyFor(Math.min(1200+res.say.length*110, 4500), ()=>applySteps(text,res.steps,true)); }
   else applySteps(text, res.steps, true);
 }
 /* "불고기버거 두 개" → 메뉴 단계(+세트/단품 등 딸린 단계)를 개수만큼 반복 */
@@ -1781,7 +1806,7 @@ function applySteps(text, steps, quiet){
   }
   A.retry=0; renderPlan();
   if(A.steps.length>1 && !quiet){            // 앞말이 끝난 뒤에 첫 단계를 짚는다
-    speak("네, 순서대로 하나씩 짚어드릴게요."); A.busy=true; setTimeout(()=>{ A.busy=false; },2000);
+    speak("네, 순서대로 하나씩 짚어드릴게요."); busyFor(2000);
   }
 }
 
@@ -1956,8 +1981,10 @@ function setMode(auto,say){
   const kg=$("#kguide"), km2=$("#kmic");   // 두 버튼을 나란히 — 지금 켜진 쪽을 강조
   if(kg){ kg.classList.toggle("on",A.active&&!auto); kg.setAttribute("aria-pressed",String(A.active&&!auto)); }
   if(km2){ km2.classList.toggle("on",A.active&&!!auto); km2.setAttribute("aria-pressed",String(A.active&&!!auto)); }
-  if(say) speak(auto? "네, 이제 제가 눌러드릴게요. 불고기버거 포장해서 계산해줘, 이렇게 한 번에 말씀하셔도 돼요."
-                    : "네, 누를 곳만 알려드릴게요. 편하게 천천히 눌러보세요.");
+  /* 이 대답은 예전엔 0.05초 뒤 화면 설명에 잘려 들리지 않았다(로그로 확인) — 끝까지 들리게 잠깐 쉬고,
+     "한 번에 말씀하셔도 돼요" 는 바로 이어지는 첫 화면 설명에서 한 번만 한다 (여기서도 하면 두 번 듣는다). */
+  if(say){ const line=auto? "네, 이제 제가 눌러드릴게요." : "네, 누를 곳만 알려드릴게요. 편하게 천천히 눌러보세요.";
+           speak(line); busyFor(Math.min(1000+line.length*110, 4000)); }
 }
 $("#mguide").addEventListener("click",()=>setMode(false,true));
 $("#mauto").addEventListener("click",()=>setMode(true,true));
