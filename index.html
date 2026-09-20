@@ -305,7 +305,7 @@ body.dev .kctl{display:none}
   </div>
 
   <div class="foot">
-    <span>미리버거는 시연용 가상 매장입니다. · v0918-할부</span>
+    <span>미리버거는 시연용 가상 매장입니다. · v0920-되듣기</span>
     <a href="https://github.com/buruk77778/talk-to-kiosk" target="_blank" rel="noopener">실제 키오스크에 붙는 버전 (GitHub)</a>
   </div>
 </div>
@@ -736,7 +736,7 @@ function bestItem(els,n){
 /* 키를 숨기는 중계 서버(Cloudflare Worker) 주소 — 키는 서버에만 있고 브라우저에는 오지 않습니다.
    ?key= 로 직접 키를 넣으면 그 키가 우선합니다. */
 const AI_PROXY_DEFAULT="https://talk-to-kiosk.mujusee1.workers.dev";
-const AI={key:null, proxy:null, model:null, ready:false, alias:{}, asked:new Set(), fails:0, name:"규칙"};
+const AI={key:null, proxy:null, switched:false, model:null, ready:false, alias:{}, asked:new Set(), fails:0, name:"규칙"};
 (function aiInit(){
   try{
     const q=new URLSearchParams(location.search).get("key");
@@ -746,49 +746,86 @@ const AI={key:null, proxy:null, model:null, ready:false, alias:{}, asked:new Set
   AI.proxy = AI.key ? null : ((window.KISOONI_PROXY||"").trim() || AI_PROXY_DEFAULT || null);
   if(AI.key||AI.proxy){ AI.ready=true; AI.name="AI 판단"; }
 })();
-const AI_PREF=["gemini-2.5-flash","gemini-3-flash","gemini-2.0-flash","gemini-2.5-flash-lite","gemini-3.1-flash-lite"];
-async function aiModel(){
-  if(AI.model) return AI.model;
+/* 모델 고르기 — 목록에 떠 있어도 막힌 모델이 있다 (gemini-2.5-flash 는 목록엔 있지만 새 사용자에겐 404).
+   그래서 목록만 믿지 않고, 불러봐서 안 되면(404·429·503·시간초과) 그 자리에서 다음 모델로 넘어간다.
+   2026-09-20 실측(주문 프롬프트 전체): 3.5-flash-lite 0.7~0.85초 · 3.6-flash 1.6~2.3초(무료 한도가 빠듯해 금방 429) · 3.1-flash-lite 2.3~4초 */
+const AI_PREF=["gemini-3.5-flash-lite","gemini-3.6-flash","gemini-flash-lite-latest","gemini-3.1-flash-lite","gemini-flash-latest"];
+const AI_PREF_AUDIO=["gemini-3.5-flash-lite","gemini-3.6-flash","gemini-flash-lite-latest","gemini-3.1-flash-lite"];   // 소리 듣기 실측 1.3~2.0초
+AI.names=null; AI.bad={}; AI.noThink={}; AI.lastErr=null;
+function aiUseProxy(){
+  AI.switched=true; AI.key=null; AI.proxy=(window.KISOONI_PROXY||"").trim()||AI_PROXY_DEFAULT; AI.names=null;
+  log("AI","키가 거절돼서 중계 서버로 바꿉니다");
+}
+async function aiList(){
+  if(AI.names) return AI.names;
   try{
-    const r=await fetch(AI.key?`https://generativelanguage.googleapis.com/v1beta/models?key=${AI.key}&pageSize=100`:`${AI.proxy}/models`);
+    let r=await fetch(AI.key?`https://generativelanguage.googleapis.com/v1beta/models?key=${AI.key}&pageSize=200`:`${AI.proxy}/models`);
+    if(!r.ok && AI.key && (r.status===401||r.status===403) && !AI.switched){ aiUseProxy(); r=await fetch(`${AI.proxy}/models`); }
     const j=await r.json();
     const names=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent")).map(m=>m.name.replace(/^models\//,""));
-    AI.model = AI_PREF.find(p=>names.includes(p)) || names.find(n=>/flash/.test(n)&&!/image|tts|live|audio|8b/.test(n)) || null;
-  }catch(e){ AI.model=null; }
-  if(!AI.model) AI.model="gemini-2.5-flash";
-  AI.name="AI 판단 · "+AI.model;
-  return AI.model;
+    if(names.length) AI.names=names;
+  }catch(e){}
+  return AI.names;
 }
-async function aiJSON(system, user, ms=9000){
-  const model=await aiModel();
+function aiPick(pref){
+  const now=Date.now(), names=AI.names, ok=m=>!(AI.bad[m]>now);
+  let c=pref.filter(m=>(!names||names.includes(m))&&ok(m));
+  if(names) c=c.concat(names.filter(n=>/flash/.test(n)&&!/image|tts|live|audio|8b|omni|preview|exp/.test(n)&&!c.includes(n)&&ok(n)).sort().reverse());
+  if(!c.length) c=pref.slice();                        // 전부 쉬는 중이면 처음부터 다시
+  return c;
+}
+async function aiCall(model, system, parts, ms, think){
   const ctrl=new AbortController(); const tm=setTimeout(()=>ctrl.abort(), ms);
   try{
+    const gen={temperature:0.2, maxOutputTokens:1024, responseMimeType:"application/json"};
+    // '생각' 단계를 줄여야 1초 안에 답한다 (안 줄이면 2~12초)
+    if(think) gen.thinkingConfig = /^gemini-2\.5/.test(model)? {thinkingBudget:0} : {thinkingLevel:"minimal"};
     const r=await fetch(AI.key?`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${AI.key}`:`${AI.proxy}/generate/${model}`,{
       method:"POST", headers:{"Content-Type":"application/json"}, signal:ctrl.signal,
-      body:JSON.stringify({system_instruction:{parts:[{text:system}]},
-        contents:[{role:"user",parts:[{text:user}]}],
-        // 2.5 모델은 기본으로 '생각'에 토큰을 써서, 짧은 한도에선 답이 비어 버린다 → 생각 끔 + 한도 넉넉히
-        generationConfig:Object.assign({temperature:0.2, maxOutputTokens:1024, responseMimeType:"application/json"},
-          /^gemini-2\.5/.test(model)? {thinkingConfig:{thinkingBudget:0}} : {})})});
-    if(!r.ok){
-      if(r.status===404||r.status===400){               // 이 모델을 못 쓰면 다음 후보로
-        const i=AI_PREF.indexOf(model); AI.model=AI_PREF[(i+1)%AI_PREF.length]; AI.name="AI 판단 · "+AI.model;
-      }
-      throw new Error("HTTP "+r.status);
-    }
+      body:JSON.stringify({system_instruction:{parts:[{text:system}]}, contents:[{role:"user",parts}], generationConfig:gen})});
+    if(!r.ok){ let msg=""; try{ msg=((await r.json()).error||{}).message||""; }catch(_){} return {ok:false,status:r.status,msg}; }
     const j=await r.json();
     const txt=((((j.candidates||[])[0]||{}).content||{}).parts||[]).map(p=>p.text||"").join("");
-    const m=txt.match(/\{[\s\S]*\}/); if(!m) throw new Error("no json");
-    AI.fails=0; return JSON.parse(m[0]);
-  }catch(e){
-    AI.fails++; log("AI","판단 실패 — 이번엔 규칙으로 대신합니다 ("+(e.message||e)+")");
-    if(AI.fails>=3 && AI.ready){                        // 잠깐 쉬었다가 다시 AI 로 (영구히 끄지 않는다)
-      AI.ready=false; AI.name="규칙"; guide();
-      setTimeout(()=>{ AI.fails=0; AI.ready=true; AI.name="AI 판단"+(AI.model?" · "+AI.model:""); guide(); }, 30000);
-    }
-    return null;
-  }finally{ clearTimeout(tm); }
+    const m=txt.match(/\{[\s\S]*\}/); if(!m) return {ok:false,status:200,msg:"no json"};
+    return {ok:true,data:JSON.parse(m[0])};
+  }catch(e){ return {ok:false,status:0,msg:(e&&e.name==="AbortError")?"timeout":String((e&&e.message)||e)}; }
+  finally{ clearTimeout(tm); }
 }
+/* opts.audio = base64 WAV — 소리를 같이 보낸다. 소리 경로의 실패는 AI 전체 실패로 세지 않는다. */
+async function aiJSON(system, user, ms=6000, opts){
+  opts=opts||{};
+  const parts = opts.audio ? [{inline_data:{mime_type:"audio/wav",data:opts.audio}},{text:user}] : [{text:user}];
+  const t0=Date.now(), budget=opts.audio? 7000 : 9000;
+  await aiList();
+  const cands=aiPick(opts.audio?AI_PREF_AUDIO:AI_PREF).slice(0, opts.audio?2:3);
+  let last=""; AI.lastErr=null;
+  for(const model of cands){
+    if(Date.now()-t0>budget) break;
+    let r=await aiCall(model,system,parts,ms,!AI.noThink[model]);
+    if(!r.ok && r.status===400 && !AI.noThink[model] && !/API key/i.test(r.msg)){   // 생각 설정을 못 받는 모델 — 빼고 한 번 더
+      AI.noThink[model]=true; r=await aiCall(model,system,parts,ms,false);
+    }
+    if(r.ok){
+      if(!opts.audio){ AI.model=model; AI.name="AI 판단 · "+model; AI.fails=0; }
+      return r.data;
+    }
+    last=((r.status?"HTTP "+r.status+" ":"")+(r.msg||"")).trim().slice(0,70);
+    AI.lastErr={status:r.status,msg:r.msg};
+    if(AI.key && !AI.switched && (r.status===401||r.status===403||/API key/i.test(r.msg))){ aiUseProxy(); return aiJSON(system,user,ms,opts); }
+    if(r.status===413) break;                          // 본문이 너무 큼 — 모델을 바꿔도 소용없다
+    // 없는·막힌 모델은 1시간, 붐빔·한도·시간초과는 1분 쉬게 하고 다음 모델로
+    AI.bad[model]=Date.now()+((r.status===404||r.status===400)?3600e3:60e3);
+    log("AI",`${model} 안 됨 (${last}) — 다음 모델로`);
+  }
+  if(opts.audio) return null;
+  AI.fails++; log("AI","판단 실패 — 이번엔 규칙으로 대신합니다 ("+last+")");
+  if(AI.fails>=3 && AI.ready){                        // 잠깐 쉬었다가 다시 AI 로 (영구히 끄지 않는다)
+    AI.ready=false; AI.name="규칙"; guide();
+    setTimeout(()=>{ AI.fails=0; AI.ready=true; AI.name="AI 판단"+(AI.model?" · "+AI.model:""); guide(); }, 30000);
+  }
+  return null;
+}
+if(AI.ready) setTimeout(()=>{ aiList(); }, 300);        // 첫 말씀 전에 모델 목록을 미리 받아둔다
 /* 돈이 나가거나 되돌리기 어려운 버튼 — "대신 누르기" 모드에서도 "네" 를 들은 뒤에만 누른다 (데스크톱판 DANGEROUS 와 동일) */
 const DANGEROUS=/신용\s*\/\s*체크카드|체크카드|간편결제|모바일 ?상품권|현금|직원 ?호출|돌아가기|삭제/;
 const FLOW_BTNS=["매장에서 먹기","포장하기","포장","매장","계산","결제","세트로","단품으로","그대로 담아줘","담기","더 담기","결제하기","괜찮아요","추가하기","적립하기","적립 안 함","신용 / 체크카드","일시불","3개월","6개월","개월 수 직접 입력","간편결제","모바일 상품권","현금","카드 투입","확인","지우기","취소","처음으로","이전","광고 닫기","닫기","장바구니"];
@@ -853,14 +890,52 @@ function validSteps(steps){
   const out2=[]; for(const st of out){ if(/^그대로/.test(st) && !out2.some(x=>/세트/.test(x))){ log("AI","세트 주문이 아니어서 '그대로 담아줘' 를 뺐습니다"); continue; } out2.push(st); }
   return out2.slice(0,12);
 }
-async function aiUnderstand(text){
+/* 받아쓴 글은 틀릴 수 있다는 걸 AI 에게 알려준다 — 인식기 후보를 전부 주고, 화면 버튼·메뉴에 비춰 바로잡게 한다 */
+const STT_RULES=`
+
+추가 규칙 (음성 인식 오류):
+- [손님 말]은 음성 인식기가 받아쓴 것이라 틀릴 수 있습니다. 특히 짧은 말은 소리가 비슷한 엉뚱한 낱말로 바뀝니다 (예: "닫아"→"자다", "매장"→"매정", "포장"→"보장", "세트"→"셋트").
+- [손님 말]이 주문과 상관없는 이상한 말이면, [인식기 후보]와 [지금 보이는 버튼]·[메뉴 목록]에서 소리가 가장 비슷한 말을 손님이 한 말로 보세요.
+- 비슷한 게 없으면 억지로 맞추지 말고 steps 를 비우고, say 로 다시 한 번 말씀해 달라고 하세요.`;
+const AUDIO_RULES=`
+
+추가 규칙 (소리 직접 듣기):
+- 첨부된 소리는 키오스크 앞 손님이 방금 한 말입니다. 직접 듣고 무슨 말인지 판단하세요.
+- [인식기가 받아쓴 말]과 [인식기 후보]는 브라우저 음성 인식기의 결과인데, 짧은 말은 자주 틀립니다 (예: "닫아"를 "자다"로). 참고만 하세요.
+- 손님은 대개 [지금 보이는 버튼]이나 [메뉴 목록]에 있는 말을 합니다. 소리가 애매하면 그 안에서 소리가 가장 가까운 말로 알아들으세요. 전혀 다른 말을 억지로 끼워 맞추지는 마세요.
+- 어시스트가 방금 물어본 것에 대한 대답("네", "아니요", "괜찮아요")이거나, 어시스트를 부르는 말("키순아", "키돌아")일 수도 있습니다.
+- [방금 어시스트가 하던 말]이 스피커에서 나와 같이 녹음됐을 수 있습니다. 그 목소리는 무시하고 손님 말만 들으세요.
+- 아직 아무 버튼도 누르지 않았습니다. 손님 말이 [지금 보이는 버튼] 중 하나를 누르라는 뜻이면(예: "닫아" → "광고 닫기") steps 에 그 버튼 이름을 꼭 넣으세요. say 에 "닫았습니다"처럼 이미 한 것처럼 말하지 마세요.
+- 손님 말이 안 들리거나 잡음뿐이면 heard 는 "" 로, steps 는 [] 로 둡니다.
+출력은 JSON 하나만: {"heard": "손님이 실제로 한 말", "steps": ["…"], "say": "…"}`;
+function altsLine(alts){
+  const a=[...new Set([].concat(...(alts||[])).map(x=>(x||"").trim()).filter(Boolean))];
+  return a.length>1? `\n[인식기 후보] ${a.slice(0,8).join(" / ")}` : "";
+}
+function aiContext(){
   const vis=readScreen().map(e=>btnName(e.el)).filter(Boolean);
-  const user=`[메뉴 목록]\n${menuText()}\n\n[지금 화면] ${K.screen}${K.popup?" (팝업: "+K.popup.title+")":""}\n[지금 보이는 버튼] ${vis.join(", ")}\n[장바구니] ${cartCount()}개 ${won(cartTotal())}\n[손님 말] "${text}"`;
-  const d=await aiJSON(AI_SYSTEM,user);
+  return `[메뉴 목록]\n${menuText()}\n\n[지금 화면] ${K.screen}${K.popup?" (팝업: "+K.popup.title+")":""}\n[지금 보이는 버튼] ${vis.join(", ")}\n[장바구니] ${cartCount()}개 ${won(cartTotal())}`;
+}
+async function aiUnderstand(text, alts){
+  const user=`${aiContext()}\n[손님 말] "${text}"${altsLine(alts)}`;
+  const d=await aiJSON(AI_SYSTEM+STT_RULES,user);
   if(!d) return null;
   const steps=validSteps(d.steps);
   log("AI",`판단 → ${JSON.stringify({steps, say:d.say||""})}`);
   return {steps, say:(d.say||"").trim()};
+}
+/* 소리를 AI 가 직접 듣는다 — 받아쓴 글이 아니라 녹음 자체를 화면 버튼·메뉴와 함께 보낸다 */
+async function aiHearAudio(text, b64, alts){
+  const user=`${aiContext()}\n[방금 어시스트가 하던 말] "${ttsText(A.lastSay||"")}"\n[인식기가 받아쓴 말] "${text}"${altsLine(alts)}`;
+  const d=await aiJSON(AI_SYSTEM+AUDIO_RULES,user,5000,{audio:b64});
+  if(!d){
+    if(AI.lastErr&&AI.lastErr.status===413){ AUD.dead=true; log("안내","소리 되듣기 꺼짐 — 중계 서버(Worker)의 용량 제한에 걸렸어요. Worker 를 새 버전으로 올리면 켜집니다."); }
+    return null;
+  }
+  const heardTxt=String(d.heard||"").trim();
+  const steps=validSteps(d.steps);
+  log("AI",`소리를 직접 들음 → ${JSON.stringify({heard:heardTxt, steps, say:d.say||""})}`);
+  return {heard:heardTxt, steps, say:String(d.say||"").trim()};
 }
 async function aiPickButton(step){
   const vis=readScreen().map(e=>btnName(e.el)).filter(Boolean);
@@ -940,7 +1015,8 @@ function planStep(step){
   }
   if(K.screen==="START"){
     const e=find(els,"화면을터치");
-    if(e) return {node:e.el,say:"주문을 시작할게요.",keep:true};
+    // "시작할게" 처럼 시작하자는 말이면 그 말은 여기서 끝난다 (남겨두면 다음 화면에서 "이 화면에는 없네요" 소리를 듣는다)
+    if(e) return {node:e.el,say:"주문을 시작할게요.",keep:!/시작|터치|스타트|눌러/.test(n)};
   }
   // 세트 팝업에서 '계산' 같은 말 → 취소 금지, 세트/단품부터
   if(K.popup&&/세트로 드시겠어요/.test(K.popup.title)&&!/세트|단품|버거만|그냥/.test(n)){
@@ -1043,6 +1119,11 @@ function tick(){
       +" 틀렸으면 '지우기'로 고치시면 돼요.");
     A.busy=true; setTimeout(()=>{ A.busy=false; },4500);
     return;
+  }
+  // 먹는 곳 화면 — 못 알아들은 말이 앞에 끼어 있어도 '매장/포장' 단계가 뒤에 있으면 그것부터 처리한다
+  if(K.screen==="DINE"&&!K.popup&&A.steps.length){
+    const di=A.steps.findIndex(s=>/^(매장에서 먹기|포장하기|매장|포장)$/.test(s));
+    if(di>0){ const d=A.steps.splice(di,1)[0]; A.steps.unshift(d); A.askHold=null; renderPlan(); }
   }
   if(!A.steps.length){ describe(); return; }
   const step=A.steps[0];
@@ -1227,10 +1308,237 @@ function digitsOf(text){
   for(const ch of norm(text)) if(KOR_NUM[ch]) out+=KOR_NUM[ch];
   return out.length>=3?out:"";
 }
-function heard(text){
+/* 짧은 말(2음절)은 인식기가 흔한 낱말로 바꿔버린다 — "닫아"→"자다" 같은 단골 오인식을 되돌린다 */
+const MISHEARD=[
+  [/^(자다|자다요|짜다|타다|따다|다다|다아|잤다|갔다|사다|카다|닿아|닫다)$/,"닫아"],
+  [/^(매정|매창|맥장|배장|메장|내장|새장)$/,"매장"],
+  [/^(보장|포창|폭장|포상|포장이)$/,"포장"],
+  [/^(셋트|세토|새트|세타|셑)$/,"세트"],
+  [/^(단풍|담품|단품이|단춤)$/,"단품"],
+  [/^(게산|개산|계삼|결재)$/,"계산"],
+  [/^(학인|화긴|하긴)$/,"확인"],
+  [/^(정립|저립|적힙)$/,"적립"],
+  [/^(갠찮아|괜찬아|괜차나|갠차나)$/,"괜찮아"],
+  [/^(지우기요|지워기|지우개)$/,"지우기"],
+  [/^(이시불|일시부|일씨불)$/,"일시불"]
+];
+function fixHeard(t,quiet){
+  const n=norm(t);
+  for(const [re,to] of MISHEARD) if(re.test(n)){ if(!quiet) log("어시스트","'"+t+"' → '"+to+"' 로 알아들었어요"); return to; }
+  return t;
+}
+/* 한글 자모 분해 + 비슷한 소리 묶기 — "닫아"를 "자다"로 듣는 식의 오인식을 화면 버튼 이름으로 되돌린다 */
+const _CHO=["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+const _JUNG=["ㅏ","ㅐ","ㅑ","ㅒ","ㅓ","ㅔ","ㅕ","ㅖ","ㅗ","ㅘ","ㅙ","ㅚ","ㅛ","ㅜ","ㅝ","ㅞ","ㅟ","ㅠ","ㅡ","ㅢ","ㅣ"];
+const _JONG=["","ㄱ","ㄲ","ㄳ","ㄴ","ㄵ","ㄶ","ㄷ","ㄹ","ㄺ","ㄻ","ㄼ","ㄽ","ㄾ","ㄿ","ㅀ","ㅁ","ㅂ","ㅄ","ㅅ","ㅆ","ㅇ","ㅈ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+/* 귀에 비슷하게 들리는 소리는 한 글자로 묶는다 (ㄷ/ㅌ/ㅈ/ㅊ, ㄱ/ㅋ, ㅂ/ㅍ, ㅅ/ㅆ/ㅎ, ㅐ/ㅏ …) */
+const _FOLD={"ㄲ":"ㄱ","ㅋ":"ㄱ","ㄸ":"ㄷ","ㅌ":"ㄷ","ㅈ":"ㄷ","ㅉ":"ㄷ","ㅊ":"ㄷ","ㅃ":"ㅂ","ㅍ":"ㅂ",
+             "ㅆ":"ㅅ","ㅎ":"ㅅ","ㄳ":"ㄱ","ㄵ":"ㄴ","ㄶ":"ㄴ","ㄺ":"ㄹ","ㄻ":"ㅁ","ㄼ":"ㄹ","ㄽ":"ㄹ","ㄾ":"ㄹ","ㄿ":"ㅂ","ㅀ":"ㄹ","ㅄ":"ㅂ",
+             "ㅐ":"ㅏ","ㅒ":"ㅑ","ㅔ":"ㅓ","ㅖ":"ㅕ","ㅚ":"ㅙ","ㅞ":"ㅙ","ㅟ":"ㅜ","ㅢ":"ㅣ"};
+function jamo(s){
+  let out="";
+  for(const ch of String(s||"").replace(/\s+/g,"")){
+    const c=ch.charCodeAt(0)-0xac00;
+    if(c>=0&&c<11172){
+      const a=_CHO[Math.floor(c/588)], b=_JUNG[Math.floor((c%588)/28)], d=_JONG[c%28];
+      out+=(_FOLD[a]||a)+(_FOLD[b]||b)+(d?(_FOLD[d]||d):"");
+    }else out+=ch;
+  }
+  return out;
+}
+function lev(a,b){
+  const m=a.length,n=b.length; if(!m) return n; if(!n) return m;
+  let prev=Array.from({length:n+1},(_,j)=>j), cur=new Array(n+1);
+  for(let i=1;i<=m;i++){ cur[0]=i;
+    for(let j=1;j<=n;j++) cur[j]=Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+(a[i-1]===b[j-1]?0:1));
+    [prev,cur]=[cur,prev];
+  }
+  return prev[n];
+}
+function simil(a,b){ const x=jamo(a),y=jamo(b); if(!x||!y) return 0; return 1-lev(x,y)/Math.max(x.length,y.length); }
+/* 지금 화면에서 나올 법한 말 */
+const SHORT_CMD=["닫아","매장","포장","계산","결제","세트","단품","확인","취소","이전","처음","괜찮아","적립","일시불","지우기","장바구니","그만","담아줘","더 담기","카드","현금","간편결제"];
+function vocabNow(){                     // [낱말, 통과 점수] — 지금 화면에 없는 메뉴 이름은 더 엄격하게 본다
+  const v=[];
+  try{ readScreen().forEach(e=>{ const n=btnName(e.el); if(n&&n.length<=12) v.push([n,0.66]); }); }catch(_){}
+  SHORT_CMD.forEach(w=>v.push([w,0.66]));
+  ALL_ITEMS.forEach(it=>v.push([it.name.replace(/\s*\(.\)$/,""),0.78]));
+  return v;
+}
+function bestVocab(t){
+  const n=norm(t); let best=null,bs=0,need=1;
+  for(const [w,th] of vocabNow()){ const sc=simil(n,norm(w)); if(sc>bs||(sc===bs&&th<need)){ bs=sc; best=w; need=th; } }
+  return {word:best,score:bs,need};
+}
+/* 짧은 한마디만 바로잡는다 — 긴 문장은 손대지 않고 규칙·AI 가 처리 */
+const NO_SNAP=/^(네|예|응|어|그래|알았|맞아|맞아요|맞습니다|좋아|좋아요|아니|아뇨|아녀|안돼|잠깐|기다려|다시|다음|처음부터|하나|둘|셋|넷|다섯|한개|두개|세개|네개|\d+)$/;
+function snapWord(t){
+  const n=norm(t);
+  if(!n||n.length>6) return t;
+  if(NO_SNAP.test(n)||WAKE.test(n)||/^[0-9]+$/.test(n)) return t;   // 대답·부르는 이름·숫자는 건드리지 않는다
+  if(MENU_WORD.test(n)||CMD_WORD.test(n)) return t;        // 이미 알아들을 수 있는 말
+  const {word,score,need}=bestVocab(n);
+  if(word&&score>=need&&norm(word)!==n){ log("어시스트","'"+t+"' → '"+word+"' 로 알아들었어요 (비슷한 소리)"); return word; }
+  return t;
+}
+/* 인식기가 준 후보 여러 개 중 지금 화면에서 말이 되는 것을 고른다 (첫 후보가 늘 맞진 않다) */
+const CMD_WORD=/포장|매장|여기서|먹고|먹을|계산|결제|세트|단품|담아|담기|확인|취소|이전|처음|닫아|닫기|광고|괜찮|적립|포인트|카드|현금|간편|상품권|일시불|개월|할부|지우기|장바구니|그만/;
+function altScore(t){
+  const n=norm(fixHeard(t,true)); if(!n) return -1;
+  let sc=0;
+  try{ const vis=readScreen().map(e=>norm(btnName(e.el))).filter(Boolean);
+       if(vis.some(v=>v.length>1&&(n.includes(v)||v.includes(n)))) sc+=4; }catch(_){}
+  if(MENU_WORD.test(n)) sc+=3;
+  if(CMD_WORD.test(n)) sc+=3;
+  sc += bestVocab(n).score*3;                 // 화면 버튼과 소리가 얼마나 닮았나
+  return sc;
+}
+function pickAlt(alts){
+  alts=alts.filter(Boolean); if(!alts.length) return "";
+  let best=alts[0], bs=altScore(alts[0]);
+  for(const a of alts.slice(1)){ const sc=altScore(a); if(sc>bs){ bs=sc; best=a; } }
+  if(best!==alts[0]) log("어시스트","후보 중 '"+best+"' 로 들었어요 (처음 후보: '"+alts[0]+"')");
+  return best;
+}
+/* ── 소리 되듣기 ──
+   인식기가 엉뚱하게 받아쓴 짧은 말("닫아"→"자다")은 글만 봐서는 되돌릴 수 없다.
+   마이크 소리를 늘 20초치 들고 있다가, 받아쓴 말이 이상하면 그 구간의 소리를 AI 에게 보내 직접 듣게 한다.
+   (데스크톱 브라우저 전용 — 휴대폰은 인식기와 마이크를 동시에 못 쓴다. 주소에 ?stt=web 을 붙이면 끈다) */
+const AUD={on:false,dead:false,starting:false,ctx:null,stream:null,src:null,node:null,
+           ring:new Int16Array(16000*20),total:0,lastAt:0,inRate:16000,_acc:0,_accN:0,_pos:0};
+const AUD_ALLOWED=!/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) && !/[?&]stt=web\b/.test(location.search)
+                  && !!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&(window.AudioContext||window.webkitAudioContext));
+function audUsable(){ return AUD.on && !AUD.dead; }
+function audPush(f32){                   // 마이크 소리 → 16kHz 16비트로 고리 버퍼에
+  const ring=AUD.ring, N=ring.length;
+  if(AUD.inRate===16000){
+    for(let i=0;i<f32.length;i++){ let s=f32[i]; s=s<-1?-1:s>1?1:s; ring[AUD.total%N]=s<0?s*32768:s*32767; AUD.total++; }
+  }else{
+    const step=AUD.inRate/16000;
+    for(let i=0;i<f32.length;i++){
+      AUD._acc+=f32[i]; AUD._accN++; AUD._pos+=1;
+      if(AUD._pos>=step){ AUD._pos-=step; let s=AUD._acc/AUD._accN; AUD._acc=0; AUD._accN=0;
+        s=s<-1?-1:s>1?1:s; ring[AUD.total%N]=s<0?s*32768:s*32767; AUD.total++; }
+    }
+  }
+  AUD.lastAt=performance.now();
+}
+async function audStart(){
+  if(!AUD_ALLOWED||AUD.on||AUD.starting||AUD.dead) return;
+  AUD.starting=true;
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}});
+    const AC=window.AudioContext||window.webkitAudioContext;
+    let ctx; try{ ctx=new AC({sampleRate:16000}); }catch(_){ ctx=new AC(); }
+    if(ctx.state==="suspended"){ try{ await ctx.resume(); }catch(_){} }
+    const src=ctx.createMediaStreamSource(stream);
+    const mute=ctx.createGain(); mute.gain.value=0; mute.connect(ctx.destination);      // 스피커로는 내보내지 않는다
+    let node=null;
+    try{
+      if(!ctx.audioWorklet) throw new Error("no worklet");
+      const code="class KTap extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c&&c.length)this.port.postMessage(c.slice(0));return true;}}registerProcessor('ktap',KTap);";
+      const url=URL.createObjectURL(new Blob([code],{type:"application/javascript"}));
+      await ctx.audioWorklet.addModule(url); URL.revokeObjectURL(url);
+      node=new AudioWorkletNode(ctx,"ktap",{numberOfInputs:1,numberOfOutputs:1,channelCount:1});
+      node.port.onmessage=ev=>audPush(ev.data);
+    }catch(_){
+      node=ctx.createScriptProcessor(4096,1,1);
+      node.onaudioprocess=ev=>audPush(ev.inputBuffer.getChannelData(0));
+    }
+    src.connect(node); node.connect(mute);
+    Object.assign(AUD,{on:true,ctx,stream,src,node,inRate:ctx.sampleRate,total:0,_acc:0,_accN:0,_pos:0});
+    if(!A.listening) audStop();            // 켜지는 사이에 마이크를 끄셨다
+    else log("안내","소리 되듣기 켜짐 — 받아쓴 말이 이상하면 AI 가 녹음된 소리를 직접 다시 듣습니다");
+  }catch(e){ log("안내","소리 되듣기는 못 켰어요 ("+((e&&e.name)||e)+") — 받아쓰기만으로 진행합니다"); }
+  finally{ AUD.starting=false; }
+}
+function audStop(){
+  if(!AUD.on) return;
+  try{ AUD.node.disconnect(); AUD.src.disconnect(); }catch(_){}
+  try{ AUD.stream.getTracks().forEach(t=>t.stop()); }catch(_){}
+  try{ AUD.ctx.close(); }catch(_){}
+  AUD.on=false;
+}
+function audTrim(pcm){                   // 앞뒤 조용한 구간을 잘라 보낼 양을 줄인다 (20ms 단위 세기)
+  const F=320, n=Math.floor(pcm.length/F); if(n<10) return pcm;
+  const e=new Float32Array(n);
+  for(let k=0;k<n;k++){ let s=0; for(let i=k*F;i<(k+1)*F;i++) s+=pcm[i]*pcm[i]; e[k]=Math.sqrt(s/F); }
+  const sorted=Array.from(e).sort((a,b)=>a-b), floor=sorted[Math.floor(n*0.1)]||0, peak=sorted[n-1];
+  const th=Math.max(floor*3, peak*0.05, 90);
+  let a=0,b=n-1; while(a<n&&e[a]<th) a++; while(b>a&&e[b]<th) b--;
+  if(a>=b) return pcm;
+  a=Math.max(0,a-20); b=Math.min(n-1,b+20);           // 앞뒤 0.4초 여유
+  return pcm.subarray(a*F,(b+1)*F);
+}
+function audWavB64(fromMs,toMs){         // performance.now() 기준 구간 → WAV(base64)
+  if(!audUsable()||!AUD.total) return null;
+  const N=AUD.ring.length;
+  let e=AUD.total-Math.max(0,Math.round((AUD.lastAt-toMs)*16)), s=AUD.total-Math.round((AUD.lastAt-fromMs)*16);
+  e=Math.min(e,AUD.total); s=Math.max(s,AUD.total-N,0,e-16000*12);                     // 길어도 12초
+  if(e-s<4000) return null;                            // 0.25초도 안 되면 보낼 게 없다
+  let pcm=new Int16Array(e-s); for(let i=s;i<e;i++) pcm[i-s]=AUD.ring[i%N];
+  pcm=audTrim(pcm);
+  let peak=1; for(let i=0;i<pcm.length;i++){ const v=pcm[i]<0?-pcm[i]:pcm[i]; if(v>peak) peak=v; }
+  if(peak<300) return null;                            // 사실상 무음
+  const g=peak<12000? Math.min(8,24000/peak) : 1;      // 작은 목소리는 키워서 보낸다
+  const buf=new ArrayBuffer(44+pcm.length*2), v=new DataView(buf);
+  const W=(o,str)=>{ for(let i=0;i<str.length;i++) v.setUint8(o+i,str.charCodeAt(i)); };
+  W(0,"RIFF"); v.setUint32(4,36+pcm.length*2,true); W(8,"WAVE"); W(12,"fmt "); v.setUint32(16,16,true);
+  v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,16000,true); v.setUint32(28,32000,true);
+  v.setUint16(32,2,true); v.setUint16(34,16,true); W(36,"data"); v.setUint32(40,pcm.length*2,true);
+  for(let i=0;i<pcm.length;i++){ let x=Math.round(pcm[i]*g); x=x>32767?32767:x<-32768?-32768:x; v.setInt16(44+i*2,x,true); }
+  const u8=new Uint8Array(buf); let bin="";
+  for(let i=0;i<u8.length;i+=0x8000) bin+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));
+  return btoa(bin);
+}
+/* 받아쓴 말이 "이 키오스크에서 나올 법한 말"인가 — 아니면 소리를 다시 듣는다 */
+const YESNO=/^(네|예|응|어|그래|맞아|맞아요|맞습니다|좋아|좋아요|확인|눌러|눌러줘|해줘|오케|아니|아뇨|아녀|안눌러|안돼|취소|잠깐|기다려|다른)/;
+const MODEW=/대신눌러|대신해|네가눌러|자동으로|다눌러|내가누를|직접누를|알려만|짚어만|가르쳐만/;
+const ASKW=/뭐|뭘|얼마|어떤|어느|추천|있어|있나|있습|인가|할까|어때|싸|비싸|맵|매운|몇|왜|어디|언제|무슨/;
+function localSense(t){
+  const n=norm(t); if(!n) return true;
+  if(n.length>10) return true;                         // 긴 말은 글로도 충분히 알아듣는다 — 되듣기는 짧은 말만
+  if(NO_SNAP.test(n)||YESNO.test(n)||WAKE.test(n)||EXITW.test(n)||MODEW.test(n)||RESET_WORD.test(n)) return true;
+  if(MENU_WORD.test(n)||CMD_WORD.test(n)||ASKW.test(n)) return true;
+  if(digitsOf(t)||monthsOf(t)) return true;
+  if(splitSteps(t).length) return true;
+  try{ const vis=readScreen().map(e=>norm(btnName(e.el))).filter(x=>x.length>1);
+       if(vis.some(x=>n.includes(x)||x.includes(n))) return true; }catch(_){}
+  if(n.length>=2 && ALL_ITEMS.some(it=>norm(it.name).includes(n))) return true;       // "불고기" 처럼 메뉴 이름의 일부
+  return false;
+}
+let HSEQ=0, lastReask=0;
+function heard(text, meta){
   text=(text||"").trim(); if(!text) return;
+  meta=meta||{};
   cutSpeech(); A.busy=false;              // 안내 중이라도 손님 말이 먼저다 (성격 급하신 분)
-  log("어르신",text,"user");
+  const seq=++HSEQ;
+  if(!meta.fixed){
+    log("어르신",text+((meta.conf&&document.body.classList.contains("dev"))? "  ("+Math.round(meta.conf*100)+"%)" : ""),"user");
+    text=snapWord(fixHeard(text));
+    /* 받아쓴 말이 이 키오스크에서 나올 법하지 않다 → 녹음된 소리를 AI 가 직접 다시 듣는다 */
+    if(meta.clip && AI.ready && audUsable() && !localSense(text)){
+      const b64=audWavB64(meta.clip.from, meta.clip.to);
+      if(b64){
+        A.busy=true; setStatus("다시 들어보는 중…");
+        log("어시스트",`'${text}' — 이 화면에서 나올 말이 아니라서 소리를 다시 들어봅니다`);
+        aiHearAudio(text,b64,meta.alts).then(res=>{
+          if(seq!==HSEQ) return;                        // 그 사이 다른 말씀을 하셨다 — 새 말이 우선
+          A.busy=false;
+          if(res && res.heard && norm(res.heard).length>=6 && norm(ttsText(A.lastSay||"")).includes(norm(res.heard))) res.heard="";   // 어시스트 목소리를 받아쓴 것
+          if(res && res.heard){
+            if(norm(res.heard)!==norm(text)) log("어시스트",`다시 들어보니 '${res.heard}' 라고 하셨네요`);
+            // 순서까지 받았으면 그대로 쓰고, 말만 바로잡혔으면 바로잡힌 말로 평소 판단을 탄다
+            heard(res.heard,{fixed:true, ai:(res.steps.length? res : null)});
+          }else if(res){                                // 말소리가 아니었다 (잡음)
+            setStatus("잘 못 들었어요 — 다시 말씀해주세요");
+            if(Date.now()-lastReask>8000){ lastReask=Date.now(); speak("잘 못 들었어요. 다시 한 번 말씀해주시겠어요?"); }
+          }else heard(text,{fixed:true, alts:meta.alts});   // 소리 경로가 안 됐다 — 원래 하던 대로
+        }).catch(()=>{ if(seq===HSEQ){ A.busy=false; heard(text,{fixed:true, alts:meta.alts}); } });
+        return;
+      }
+    }
+  }
   const nn=norm(text);
   if(A.confirmNode){                                  // "'현금' 누를까요?" 에 대한 대답
     const nd=A.confirmNode, st=A.confirmStep, consume=A.confirmConsume;
@@ -1248,6 +1556,12 @@ function heard(text){
       clearPoint(); speak("네, 안 누를게요. 원하시는 걸 말씀해주세요."); return;
     }
     A.confirmNode=null; A.confirmStep=null; A.askHold=null;   // 다른 말씀이면 그 말대로 다시 판단
+  }
+  if(A.askHold && K.screen==="DINE" && !K.popup && /매장|여기서|먹고|먹을|드시고|식사|점내|홀에서|포장|가져|싸주|싸줘|테이크/.test(nn)){
+    const want=/포장|가져|싸주|싸줘|테이크/.test(nn)?"포장하기":"매장에서 먹기";
+    A.askHold=null;
+    A.steps=A.steps.filter(s=>!/^(매장에서 먹기|포장하기|매장|포장)$/.test(s));
+    A.steps.unshift(want); A.retry=0; A.sig=""; renderPlan(); return;
   }
   if(A.askHold && /세트|단품|버거만|그냥/.test(nn)){   // "세트로 하실래요?" 에 대한 대답 — 남은 순서는 이어서
     A.setChoice=/세트/.test(nn)?"세트로":"단품으로"; A.askHold=null; A.sig=""; renderPlan(); return;
@@ -1299,23 +1613,26 @@ function heard(text){
     }
   }
   A.waiting=null; clearPoint();
+  if(meta.ai){ applyAI(text, meta.ai); return; }       // 소리를 들은 AI 가 판단까지 끝냈다 — 다시 묻지 않는다
   if(AI.ready && !A.busy){
     A.busy=true; setStatus("생각 중…");
-    aiUnderstand(text).then(res=>{
-      A.busy=false; A.sig=sig();
-      if(!res){ applySteps(text, splitSteps(text)); return; }
-      if(!res.steps.length){                       // 질문·잡담 → 대답만 (대답이 끝날 때까지 다른 안내는 쉰다)
-        const ans=res.say || "잘 못 알아들었어요. 다시 한 번 말씀해주세요.";
-        speak(ans); A.busy=true; setTimeout(()=>{ A.busy=false; }, Math.min(1500+ans.length*110, 6000));
-        setStatus(A.autoClick? "말씀하시면 제가 눌러드릴게요" : "뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
-        return;
-      }
-      if(res.say){ speak(res.say); A.busy=true; setTimeout(()=>{ A.busy=false; applySteps(text,res.steps,true); }, Math.min(1200+res.say.length*110, 4500)); }
-      else applySteps(text, res.steps, true);
-    });
+    aiUnderstand(text, meta.alts).then(res=>{ A.busy=false; applyAI(text,res); })
+                                 .catch(()=>{ A.busy=false; applyAI(text,null); });      // 어떤 오류가 나도 멈춰 서지 않는다
     return;
   }
   applySteps(text, splitSteps(text));
+}
+function applyAI(text,res){
+  A.sig=sig();
+  if(!res){ applySteps(text, splitSteps(text)); return; }
+  if(!res.steps.length){                         // 질문·잡담 → 대답만 (대답이 끝날 때까지 다른 안내는 쉰다)
+    const ans=res.say || "잘 못 알아들었어요. 다시 한 번 말씀해주세요.";
+    speak(ans); A.busy=true; setTimeout(()=>{ A.busy=false; }, Math.min(1500+ans.length*110, 6000));
+    setStatus(A.autoClick? "말씀하시면 제가 눌러드릴게요" : "뭘 누르면 되는지 알려드릴게요 — 누르는 건 직접 하세요");
+    return;
+  }
+  if(res.say){ speak(res.say); A.busy=true; setTimeout(()=>{ A.busy=false; applySteps(text,res.steps,true); }, Math.min(1200+res.say.length*110, 4500)); }
+  else applySteps(text, res.steps, true);
 }
 /* "불고기버거 두 개" → 메뉴 단계(+세트/단품 등 딸린 단계)를 개수만큼 반복 */
 const KNUM={"한":1,"하나":1,"두":2,"둘":2,"세":3,"셋":3,"네":4,"넷":4,"다섯":5};
@@ -1328,14 +1645,20 @@ function qtyAfter(text,name){
   return Math.min(Math.max(q||1,1),5);
 }
 function expandQty(text,steps){
-  const items=new Set(ALL_ITEMS.map(x=>x.name)), out=[];
+  const items=new Set(ALL_ITEMS.map(x=>x.name)), groups=[];
   for(let i=0;i<steps.length;i++){
-    if(!items.has(steps[i])){ out.push(steps[i]); continue; }
+    if(!items.has(steps[i])){ groups.push({g:[steps[i]],item:false,n:1}); continue; }
     const grp=[steps[i]];
     while(i+1<steps.length && /^(세트로|단품으로|그대로)/.test(steps[i+1])) grp.push(steps[++i]);
-    const q=qtyAfter(text,steps[grp.length?i-grp.length+1:i]);
-    for(let k=0;k<q;k++) out.push(...grp);
-    if(q>1) log("어시스트",`${grp[0]} ${q}개 — ${q}번 담습니다`);
+    const last=groups[groups.length-1];
+    if(last&&last.item&&last.g.join("|")===grp.join("|")) last.n++;   // AI 가 "두 개"를 이미 두 번으로 풀어 줬다 — 또 곱하지 않는다
+    else groups.push({g:grp,item:true,n:1});
+  }
+  const out=[];
+  for(const x of groups){
+    const q=x.item? Math.max(x.n, qtyAfter(text,x.g[0])) : 1;
+    for(let k=0;k<q;k++) out.push(...x.g);
+    if(q>1) log("어시스트",`${x.g[0]} ${q}개 — ${q}번 담습니다`);
   }
   return out;
 }
@@ -1383,23 +1706,34 @@ if(!SR){
 }else if(!SECURE){
   hint("파일(file://)로 열어서 마이크를 쓸 수 없어요. http://localhost 나 https 주소로 열면 음성이 됩니다. 지금은 타이핑으로 체험하세요.");
 }else{
-  rec=new SR(); rec.lang="ko-KR"; rec.continuous=true; rec.interimResults=true;
+  rec=new SR(); rec.lang="ko-KR"; rec.continuous=true; rec.interimResults=true; rec.maxAlternatives=5;
   rec.onstart=()=>{ setStatus("듣고 있어요 — 말씀하세요"); };
   /* 한 번에 여러 개를 말씀하시면 인식기가 "불고기버거 치즈버거" / "새우버거 포장해줘" 처럼
      토막으로 끊어 넘긴다. 토막마다 처리하면 앞말이 지워지므로, 잠깐 모아서 한 문장으로 처리한다. */
-  let heardBuf="", heardTimer=null;
+  let heardBuf="", heardTimer=null, heardAlts=[], heardConf=0, uttFrom=0, uttInterim=false, lastFlushAt=0;
   const HEARD_WAIT=800;                    // 토막 모으는 시간 — 말이 끝난 티가 나면 기다리지 않는다
   const DONE_WORDS=/해줘|주세요|할게|줄래|부탁|계산|결제|끝|담아|먹을게|갈게|넣었|괜찮|확인|일시불|적립/;
   function flushHeard(){
     clearTimeout(heardTimer);
-    const t=heardBuf; heardBuf="";
-    if(t){ setStatus("듣고 있어요 — 말씀하세요"); heard(t); }
+    const t=heardBuf, alts=heardAlts, conf=heardConf, from=uttFrom, hadInterim=uttInterim, now=performance.now();
+    heardBuf=""; heardAlts=[]; heardConf=0; uttFrom=0; uttInterim=false;
+    if(t){
+      setStatus("듣고 있어요 — 말씀하세요");
+      // 이 말이 녹음된 구간 — 인식기는 말이 시작되고 한참 뒤에야 알려주므로 넉넉히 앞에서부터 잡는다
+      const f0=(now-from>15000)? now-6000 : from-(hadInterim?2500:3500);
+      const clip=(audUsable()&&from)? {from:Math.max(f0,lastFlushAt), to:now} : null;
+      lastFlushAt=now;
+      heard(t,{alts,conf,clip});
+    }
   }
-  function pushHeard(txt){
+  function pushHeard(txt,alts,conf){
     txt=(txt||"").trim(); if(!txt) return;
-    if(isEcho(txt)) return;                // 어시스트 목소리가 되들어온 것
+    if(isEcho(txt)){ if(!heardBuf){ uttFrom=0; uttInterim=false; } return; }   // 어시스트 목소리가 되들어온 것
     cutSpeech();                           // 손님이 말하기 시작하면 안내는 바로 멈춘다
+    if(!uttFrom) uttFrom=performance.now();
     heardBuf=(heardBuf? heardBuf+" " : "")+txt;
+    if(alts&&alts.length) heardAlts.push(alts);
+    if(conf) heardConf=heardConf? Math.min(heardConf,conf) : conf;
     setStatus("🎤 "+heardBuf);
     clearTimeout(heardTimer);
     if(DONE_WORDS.test(norm(heardBuf))) flushHeard();     // 끝맺는 말이 나오면 기다리지 않고 바로
@@ -1409,10 +1743,14 @@ if(!SR){
     let interim="";
     for(let i=e.resultIndex;i<e.results.length;i++){
       const r=e.results[i];
-      if(r.isFinal) pushHeard(r[0].transcript);
+      if(r.isFinal){
+        const alts=[]; for(let k=0;k<r.length;k++) alts.push((r[k]||{}).transcript||"");
+        pushHeard(pickAlt(alts), alts, (r[0]||{}).confidence||0);
+      }
       else interim+=r[0].transcript;
     }
     if(interim&&!isEcho(interim)){
+      if(!uttFrom){ uttFrom=performance.now(); uttInterim=true; }
       cutSpeech();                         // 아직 말이 안 끝났어도, 손님 목소리가 들리면 안내부터 멈춘다
       setStatus("🎤 "+(heardBuf? heardBuf+" " : "")+interim);
     }
@@ -1437,7 +1775,7 @@ const INFRAME = (window.self!==window.top);
 function openInNewTab(){ try{ window.open(location.href,"_blank","noopener"); }catch(_){}}
 $("#micbtn").addEventListener("click",async ()=>{
   if(!rec){ $("#say").focus(); return; }
-  if(A.listening){ A.listening=false; try{rec.stop();}catch(_){} micUI(); return; }
+  if(A.listening){ A.listening=false; try{rec.stop();}catch(_){} audStop(); micUI(); return; }
   // 권한을 먼저 직접 물어본다 (실패 이유를 정확히 알 수 있음)
   try{
     if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
@@ -1460,6 +1798,7 @@ $("#micbtn").addEventListener("click",async ()=>{
   }
   A.listening=true;
   try{ rec.start(); }catch(_){}
+  audStart();                              // 소리 되듣기용 녹음 (데스크톱만)
   micUI();
 });
 if(new URLSearchParams(location.search).has("dev")) document.body.classList.add("dev");
@@ -1562,6 +1901,7 @@ render(); onEnter("START"); setStatus('안내 꺼짐 — 아래 버튼을 누르
 A.sig=sig();
 log("안내",'평소에는 보통 키오스크입니다. 아래 "말로 주문하기" 나 "내가 누를게요" 를 누르면 안내가 시작됩니다.');
 if(window.speechSynthesis) pickVoices();
+if(document.body.classList.contains("dev")) window.__k={A,AI,AUD,K,heard,audPush,audWavB64,audTrim,localSense,snapWord,fixHeard,aiHearAudio,aiUnderstand,aiJSON,aiPick};
 })();
 </script>
 </body>
